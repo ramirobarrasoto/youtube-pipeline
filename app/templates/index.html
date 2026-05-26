@@ -181,6 +181,15 @@
             <option value="8">8 imagenes</option>
           </select>
         </div>
+        <div class="option-group" style="grid-column: span 2;">
+          <label>&#127925; Musica de fondo</label>
+          <select id="musica">
+            <option value="sin_musica">Sin musica</option>
+            <option value="epico">&#9876; Epico / Orquestal</option>
+            <option value="dramatico">&#127999; Dramatico</option>
+            <option value="aventura">&#128640; Aventura</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -439,7 +448,8 @@ function generarVideo() {
       canal_base: canalBase, tema: tema,
       duracion: document.getElementById("duracion").value,
       privacidad: document.getElementById("privacidad").value,
-      imagenes: document.getElementById("imagenes").value
+      imagenes: document.getElementById("imagenes").value,
+      musica: document.getElementById("musica").value
     })}).then(function(){ polling = setInterval(checkStatus, 3000); });
   } else {
     var canal = canalBase + "_" + idioma;
@@ -448,7 +458,8 @@ function generarVideo() {
       duracion: document.getElementById("duracion").value,
       voz: document.getElementById("voz").value,
       privacidad: document.getElementById("privacidad").value,
-      imagenes: document.getElementById("imagenes").value
+      imagenes: document.getElementById("imagenes").value,
+      musica: document.getElementById("musica").value
     })}).then(function(){ polling = setInterval(checkStatus, 3000); });
   }
 }

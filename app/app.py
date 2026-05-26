@@ -47,7 +47,7 @@ def esperar_checkpoint(tipo, data={}):
     pipeline_status["running"] = True
     return checkpoint_aprobado["value"]
 
-def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes):
+def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes, genero_musica="sin_musica"):
     global pipeline_status
     pipeline_status = {"running": True, "steps": [], "error": None, "video_url": None, "checkpoint": None, "checkpoint_data": {}}
     try:
@@ -109,13 +109,15 @@ def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes):
             esperar_checkpoint("imagenes", {"imagenes": imagenes})
         log_step("Imagenes aprobadas", "done")
 
-        log_step("Compilando video con Ken Burns y subtitulos...")
+        musica_label = genero_musica if genero_musica and genero_musica != "sin_musica" else "sin música"
+        log_step(f"Compilando video con Ken Burns, subtitulos y {musica_label}...")
         from pipeline_video import pipeline_video_completo
         video_path = pipeline_video_completo(
             audio_path=audio_path,
             images_dir=images_dir,
             output_dir=os.path.join(BASE_DIR, base_dir),
-            con_subtitulos=True
+            con_subtitulos=True,
+            genero_musica=genero_musica,
         )
         log_step("Video compilado", "done")
 
@@ -148,7 +150,7 @@ def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes):
         pipeline_status["checkpoint"] = None
 
 
-def run_pipeline_multiidioma(canal_base, tema, duracion, privacidad, cantidad_imagenes):
+def run_pipeline_multiidioma(canal_base, tema, duracion, privacidad, cantidad_imagenes, genero_musica="sin_musica"):
     """Genera el mismo video en ES, EN y PT con checkpoints multi-idioma."""
     global pipeline_status
     pipeline_status = {"running": True, "steps": [], "error": None, "video_url": None, "checkpoint": None, "checkpoint_data": {}}
@@ -252,7 +254,8 @@ def run_pipeline_multiidioma(canal_base, tema, duracion, privacidad, cantidad_im
                 audio_path=audios[idioma],
                 images_dir=images_dir,
                 output_dir=os.path.join(BASE_DIR, f"{base_dir}/{idioma}"),
-                con_subtitulos=True
+                con_subtitulos=True,
+                genero_musica=genero_musica,
             )
             log_step(f"Video [{idioma.upper()}] compilado", "done")
             
@@ -301,7 +304,8 @@ def generar():
         return jsonify({"error": "Pipeline ya esta corriendo"}), 400
     data = request.json
     thread = threading.Thread(target=run_pipeline, kwargs={"canal": data["canal"], "tema": data["tema"],
-        "duracion": data["duracion"], "voz": data["voz"], "privacidad": data["privacidad"], "cantidad_imagenes": data["imagenes"]})
+        "duracion": data["duracion"], "voz": data["voz"], "privacidad": data["privacidad"],
+        "cantidad_imagenes": data["imagenes"], "genero_musica": data.get("musica", "sin_musica")})
     thread.daemon = True
     thread.start()
     return jsonify({"ok": True})
@@ -318,7 +322,8 @@ def generar_todos():
         "tema": data["tema"],
         "duracion": data["duracion"],
         "privacidad": data["privacidad"],
-        "cantidad_imagenes": data["imagenes"]
+        "cantidad_imagenes": data["imagenes"],
+        "genero_musica": data.get("musica", "sin_musica"),
     })
     thread.daemon = True
     thread.start()
