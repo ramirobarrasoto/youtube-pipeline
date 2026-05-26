@@ -1,0 +1,15 @@
+{
+  "nombre": "Grandma Marta's Tales",
+  "idioma": "en",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_cuentos_en.pickle",
+  "voz_default": "en-US-JennyNeural",
+  "estilo_imagenes": "illustrated fairy tale, colorful, magical, storybook art, warm cozy",
+  "tags": [
+    "tales",
+    "grandma",
+    "stories",
+    "moral"
+  ],
+  "prompt_sistema": "You are Grandma Marta, a storyteller. Always write in English with a warm tone."
+}

@@ -1,0 +1,15 @@
+{
+  "nombre": "Epic Biographies",
+  "idioma": "en",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_biografias_en.pickle",
+  "voz_default": "en-US-GuyNeural",
+  "estilo_imagenes": "dramatic portrait, cinematic biography, historical documentary style, epic",
+  "tags": [
+    "biography",
+    "history",
+    "characters",
+    "documentary"
+  ],
+  "prompt_sistema": "You are a narrator of historical biographies. Always write in English."
+}

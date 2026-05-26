@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Maestro</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; padding: 2rem; }
+  h1 { font-size: 1.5rem; font-weight: 500; color: #fff; }
+  .container { max-width: 700px; margin: 0 auto; }
+  .tabs { display: flex; gap: 0; margin: 1.25rem 0 2rem; border-bottom: 1px solid #222; }
+  .tab { padding: 10px 24px; background: none; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 14px; font-weight: 500; cursor: pointer; }
+  .tab.activo { border-bottom-color: #E87830; color: #E87830; }
+  .section { margin-bottom: 1.5rem; }
+  .section-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem; }
+  .canal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .canal-card { border: 1px solid #333; border-radius: 10px; padding: 1rem; cursor: pointer; background: #1a1a1a; }
+  .canal-card:hover { border-color: #555; }
+  .canal-card.selected { border-color: #E87830; background: #1f1510; }
+  .idioma-card { border: 1px solid #333; border-radius: 10px; padding: 0.75rem 1rem; cursor: pointer; background: #1a1a1a; text-align: center; }
+  .idioma-card:hover { border-color: #555; }
+  .idioma-card.selected { border-color: #E87830; background: #1f1510; }
+  .canal-icon { font-size: 1.5rem; margin-bottom: 6px; }
+  .canal-name { font-size: 13px; font-weight: 500; }
+  .canal-desc { font-size: 11px; color: #888; margin-top: 2px; }
+  textarea { width: 100%; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 12px; color: #e0e0e0; font-size: 14px; font-family: inherit; resize: vertical; min-height: 80px; }
+  textarea:focus { outline: none; border-color: #E87830; }
+  .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .option-group label { font-size: 12px; color: #888; display: block; margin-bottom: 4px; }
+  select { width: 100%; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 8px 12px; color: #e0e0e0; font-size: 13px; }
+  .btn { padding: 10px 20px; font-size: 14px; font-weight: 500; border-radius: 8px; border: none; cursor: pointer; }
+  .btn-generate { width: 100%; padding: 14px; font-size: 15px; border-radius: 8px; background: #E87830; color: #fff; border: none; cursor: pointer; margin-top: 1rem; }
+  .btn-generate:hover { background: #d06820; }
+  .btn-generate:disabled { background: #444; cursor: not-allowed; }
+  .btn-approve { background: #2d6a2d; color: #4caf50; }
+  .btn-reject { background: #6a2d2d; color: #f44336; }
+  .status-box { margin-top: 1.5rem; background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 1.25rem; display: none; }
+  .status-box.visible { display: block; }
+  .status-step { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid #222; }
+  .status-step:last-child { border-bottom: none; }
+  .step-done { color: #4caf50; }
+  .step-active { color: #E87830; }
+  .step-error { color: #f44336; }
+  .step-checkpoint { color: #2196F3; }
+  .chk { margin-top: 1rem; background: #0d1525; border: 1px solid #1a3a6a; border-radius: 10px; padding: 1.25rem; display: none; }
+  .chk.visible { display: block; }
+  .chk-title { font-size: 14px; font-weight: 500; color: #2196F3; margin-bottom: 0.5rem; }
+  .chk-hint { font-size: 12px; color: #666; margin-bottom: 0.75rem; }
+  .chk-actions { display: flex; gap: 10px; margin-top: 1rem; }
+  .chk-actions .btn { flex: 1; }
+  .script-editor { width: 100%; background: #111; border: 1px solid #2a4a2a; border-radius: 8px; padding: 12px; color: #e0e0e0; font-size: 13px; font-family: inherit; resize: vertical; min-height: 300px; line-height: 1.6; }
+  .script-preview { font-size: 12px; color: #888; background: #111; border-radius: 6px; padding: 10px; margin-bottom: 1rem; max-height: 120px; overflow-y: auto; line-height: 1.5; }
+  .audio-player { width: 100%; margin-bottom: 0.5rem; }
+  .images-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 0.5rem; }
+  .images-grid img { width: 100%; border-radius: 6px; aspect-ratio: 9/16; object-fit: cover; }
+  .img-delete { font-size: 11px; color: #f44336; cursor: pointer; background: rgba(0,0,0,0.7); border: none; padding: 4px 8px; border-radius: 4px; position: absolute; top: 4px; right: 4px; }
+  .upload-area { border: 1px dashed #444; border-radius: 8px; padding: 1rem; text-align: center; margin-top: 0.75rem; cursor: pointer; color: #888; font-size: 13px; }
+  .upload-area:hover { border-color: #E87830; color: #E87830; }
+  .result-box { margin-top: 1rem; background: #0d1f0d; border: 1px solid #2a4a2a; border-radius: 10px; padding: 1.25rem; display: none; }
+  .result-box.visible { display: block; }
+  .result-box a { color: #4caf50; font-size: 14px; }
+  .btn-filtro { padding: 6px 14px; background: #1a1a1a; border: 1px solid #333; border-radius: 20px; color: #888; font-size: 12px; cursor: pointer; }
+  .btn-filtro.activo { border-color: #E87830; color: #E87830; background: #1f1510; }
+  .video-card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; overflow: hidden; display: flex; }
+  .video-thumb { width: 80px; min-height: 80px; background: #111; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 24px; overflow: hidden; }
+  .video-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .video-info { padding: 12px 14px; flex: 1; min-width: 0; }
+  .video-tema { font-size: 14px; font-weight: 500; color: #e0e0e0; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .video-meta { font-size: 11px; color: #555; margin-bottom: 8px; }
+  .video-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .video-btn { padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 500; border: none; cursor: pointer; }
+  .video-btn-yt { background: rgba(244,67,54,0.15); color: #ef9a9a; border: 1px solid rgba(244,67,54,0.3); }
+  .video-btn-script { background: rgba(33,150,243,0.15); color: #64b5f6; border: 1px solid rgba(33,150,243,0.3); }
+  .video-btn-reusar { background: rgba(232,120,48,0.15); color: #E87830; border: 1px solid rgba(232,120,48,0.3); }
+  .canal-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; margin-right: 6px; }
+  .canal-futbol_es,.canal-futbol_en,.canal-futbol_pt { background: rgba(232,120,48,0.15); color: #E87830; }
+  .canal-cuentos_es,.canal-cuentos_en,.canal-cuentos_pt { background: rgba(33,150,243,0.15); color: #64b5f6; }
+  .canal-biografias_es,.canal-biografias_en,.canal-biografias_pt { background: rgba(156,39,176,0.15); color: #ce93d8; }
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+  .modal-box { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 1.5rem; max-width: 600px; width: 100%; max-height: 80vh; overflow-y: auto; }
+  .modal-title { font-size: 14px; font-weight: 600; color: #e0e0e0; margin-bottom: 1rem; }
+  .modal-script { font-size: 13px; color: #aaa; line-height: 1.7; white-space: pre-wrap; }
+  .modal-close { width: 100%; margin-top: 1rem; padding: 10px; background: #333; border: none; border-radius: 8px; color: #aaa; cursor: pointer; }
+  .tabs-idioma { display: flex; gap: 0; border-bottom: 1px solid #333; margin-bottom: 1rem; }
+  .tab-idioma { padding: 8px 20px; background: none; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .tab-idioma.activo { border-bottom-color: #E87830; color: #E87830; }
+  .tab-panel { display: none; }
+  .tab-panel.activo { display: block; }
+  .voz-display { background: #111; border: 1px solid #2a4a2a; border-radius: 8px; padding: 8px 12px; font-size: 13px; color: #4caf50; min-height: 38px; display: flex; flex-direction: column; gap: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Pipeline Maestro</h1>
+  <div class="tabs">
+    <button class="tab activo" id="tab-generar" onclick="mostrarPestana('generar')">Generar</button>
+    <button class="tab" id="tab-biblioteca" onclick="mostrarPestana('biblioteca')">Biblioteca</button>
+  </div>
+
+  <div id="panel-generar">
+    <div class="section">
+      <div class="section-label">Canal de destino</div>
+      <div class="canal-grid">
+        <div class="canal-card selected" onclick="selectCanalBase(this,'futbol')">
+          <div class="canal-icon">&#9917;</div>
+          <div class="canal-name">Futbol</div>
+          <div class="canal-desc">Historia del futbol</div>
+        </div>
+        <div class="canal-card" onclick="selectCanalBase(this,'cuentos')">
+          <div class="canal-icon">&#128119;</div>
+          <div class="canal-name">Abuela Marta</div>
+          <div class="canal-desc">Cuentos con moraleja</div>
+        </div>
+        <div class="canal-card" onclick="selectCanalBase(this,'biografias')">
+          <div class="canal-icon">&#127917;</div>
+          <div class="canal-name">Biografias</div>
+          <div class="canal-desc">Personajes historicos</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Idioma</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:0.75rem">
+        <div class="idioma-card selected" id="idioma-es" onclick="selectIdioma('es')">
+          <div style="font-size:1.4rem;font-weight:700">ES</div>
+          <div style="font-size:12px;margin-top:4px">Espanol</div>
+        </div>
+        <div class="idioma-card" id="idioma-en" onclick="selectIdioma('en')">
+          <div style="font-size:1.4rem;font-weight:700">EN</div>
+          <div style="font-size:12px;margin-top:4px">English</div>
+        </div>
+        <div class="idioma-card" id="idioma-pt" onclick="selectIdioma('pt')">
+          <div style="font-size:1.4rem;font-weight:700">PT</div>
+          <div style="font-size:12px;margin-top:4px">Portugues</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="todos-idiomas" onchange="toggleTodosIdiomas(this)" style="width:16px;height:16px;accent-color:#E87830">
+        <label for="todos-idiomas" style="font-size:13px;color:#888;cursor:pointer">Generar en los 3 idiomas automaticamente</label>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Tema del video</div>
+      <textarea id="tema" placeholder="Ej: La final del Mundial 1950..."></textarea>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Opciones</div>
+      <div class="options-grid">
+        <div class="option-group">
+          <label>Duracion</label>
+          <select id="duracion">
+            <option value="corto">Corto (60-90 seg)</option>
+            <option value="medio">Medio (3-5 min)</option>
+            <option value="largo">Largo (8-10 min)</option>
+          </select>
+        </div>
+        <div class="option-group">
+          <label>Voz</label>
+          <input type="hidden" id="voz" value="es-MX-JorgeNeural">
+          <div class="voz-display" id="voz-display">
+            <span>[ES] Carlos (Mexico)</span>
+          </div>
+        </div>
+        <div class="option-group">
+          <label>Privacidad</label>
+          <select id="privacidad">
+            <option value="private">Privado (revisar primero)</option>
+            <option value="unlisted">No listado</option>
+            <option value="public">Publico</option>
+          </select>
+        </div>
+        <div class="option-group">
+          <label>Imagenes</label>
+          <select id="imagenes">
+            <option value="4">4 imagenes</option>
+            <option value="6">6 imagenes</option>
+            <option value="8">8 imagenes</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-generate" id="btn-gen" onclick="generarVideo()">Generar video</button>
+
+    <div class="status-box" id="status-box"><div id="steps-container"></div></div>
+
+    <div class="chk" id="chk-script">
+      <div class="chk-title">&#128221; Revisa y edita el script</div>
+      <div class="chk-hint">Podes editar el texto directamente.</div>
+      <textarea class="script-editor" id="script-editor"></textarea>
+      <div class="chk-actions">
+        <button class="btn btn-approve" onclick="aprobarScript()">&#9989; Aprobar y generar audio</button>
+      </div>
+    </div>
+
+    <div class="chk" id="chk-audio">
+      <div class="chk-title">&#127908; Revisa el audio</div>
+      <div class="script-preview" id="script-preview"></div>
+      <audio class="audio-player" id="audio-player" controls preload="auto"></audio>
+      <div class="chk-actions">
+        <button class="btn btn-approve" onclick="aprobar()">&#9989; Aprobar y continuar</button>
+        <button class="btn btn-reject" onclick="rechazar()">&#128260; Regenerar audio</button>
+      </div>
+    </div>
+
+    <div class="chk" id="chk-imagenes">
+      <div class="chk-title">&#128444; Revisa las imagenes</div>
+      <div class="chk-hint">Podes eliminar imagenes o subir las tuyas (1080x1920px recomendado)</div>
+      <div class="images-grid" id="images-grid"></div>
+      <div class="upload-area" onclick="document.getElementById('file-upload').click()">&#128194; Click para subir imagenes propias</div>
+      <input type="file" id="file-upload" accept=".jpg,.jpeg,.png,.webp" multiple style="display:none" onchange="subirImagenes(this.files)">
+      <div class="chk-actions">
+        <button class="btn btn-approve" onclick="aprobar()">&#9989; Aprobar y continuar</button>
+        <button class="btn btn-reject" onclick="rechazar()">&#128260; Regenerar imagenes</button>
+      </div>
+    </div>
+
+  
+  <div class="chk" id="chk-scripts-multi">
+    <div class="chk-title">&#128221; Revisa y edita los 3 scripts</div>
+    <div class="chk-hint">Edita cada script antes de generar los audios.</div>
+    <div class="tabs-idioma">
+      <button class="tab-idioma activo" onclick="switchTabScript('es')">ES</button>
+      <button class="tab-idioma" onclick="switchTabScript('en')">EN</button>
+      <button class="tab-idioma" onclick="switchTabScript('pt')">PT</button>
+    </div>
+    <div class="tab-panel activo" id="script-panel-es">
+      <textarea class="script-editor" id="script-editor-es"></textarea>
+    </div>
+    <div class="tab-panel" id="script-panel-en">
+      <textarea class="script-editor" id="script-editor-en"></textarea>
+    </div>
+    <div class="tab-panel" id="script-panel-pt">
+      <textarea class="script-editor" id="script-editor-pt"></textarea>
+    </div>
+    <div class="chk-actions">
+      <button class="btn btn-approve" onclick="aprobarScriptsMulti()">&#9989; Aprobar los 3 scripts y generar audios</button>
+    </div>
+  </div>
+
+  <div class="chk" id="chk-audios-multi">
+    <div class="chk-title">&#127908; Revisa los 3 audios</div>
+    <div class="tabs-idioma">
+      <button class="tab-idioma activo" onclick="switchTabAudio('es')">ES</button>
+      <button class="tab-idioma" onclick="switchTabAudio('en')">EN</button>
+      <button class="tab-idioma" onclick="switchTabAudio('pt')">PT</button>
+    </div>
+    <div class="tab-panel activo" id="audio-panel-es">
+      <div class="script-preview" id="script-preview-es"></div>
+      <audio id="audio-player-es" controls preload="auto" style="width:100%"></audio>
+    </div>
+    <div class="tab-panel" id="audio-panel-en">
+      <div class="script-preview" id="script-preview-en"></div>
+      <audio id="audio-player-en" controls preload="auto" style="width:100%"></audio>
+    </div>
+    <div class="tab-panel" id="audio-panel-pt">
+      <div class="script-preview" id="script-preview-pt"></div>
+      <audio id="audio-player-pt" controls preload="auto" style="width:100%"></audio>
+    </div>
+    <div class="chk-actions">
+      <button class="btn btn-approve" onclick="aprobar()">&#9989; Aprobar audios y continuar</button>
+      <button class="btn btn-reject" onclick="rechazar()">&#128260; Regenerar audios</button>
+    </div>
+  </div>
+
+  <div class="result-box" id="result-box">
+      &#127881; Video listo: <a id="video-link" href="#" target="_blank">Ver en YouTube</a>
+    </div>
+  </div>
+
+  <div id="panel-biblioteca" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:10px">
+      <div style="font-size:13px;color:#888">Filtrar:</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="cargarBiblioteca('todos')" id="filtro-todos" class="btn-filtro activo">Todos</button>
+        <button onclick="cargarBiblioteca('futbol')" id="filtro-futbol" class="btn-filtro">&#9917; Futbol</button>
+        <button onclick="cargarBiblioteca('cuentos')" id="filtro-cuentos" class="btn-filtro">&#128119; Cuentos</button>
+        <button onclick="cargarBiblioteca('biografias')" id="filtro-biografias" class="btn-filtro">&#127917; Biografias</button>
+      </div>
+    </div>
+    <div id="biblioteca-grid" style="display:flex;flex-direction:column;gap:12px">
+      <div style="color:#555;text-align:center;padding:2rem">Selecciona un filtro para ver los videos</div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-script" style="display:none" onclick="cerrarModal()">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-title" id="modal-titulo">Script</div>
+      <div class="modal-script" id="modal-contenido"></div>
+      <button class="modal-close" onclick="cerrarModal()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var canalBase = "futbol";
+var idioma = "es";
+var todosIdiomas = false;
+var polling = null;
+var checkpointActual = null;
+
+var VOCES = {
+  futbol:     { es: "es-MX-JorgeNeural",    en: "en-US-GuyNeural",      pt: "pt-BR-AntonioNeural"   },
+  cuentos:    { es: "es-ES-ElviraNeural",   en: "en-US-JennyNeural",    pt: "pt-BR-FranciscaNeural" },
+  biografias: { es: "es-MX-JorgeNeural",    en: "en-US-GuyNeural",      pt: "pt-BR-AntonioNeural"   }
+};
+
+var NOMBRES_VOCES = {
+  "es-MX-JorgeNeural":    "Carlos (Mexico)",
+  "es-ES-ElviraNeural":   "Elvira - Abuela Marta",
+  "en-US-GuyNeural":      "Guy (USA)",
+  "en-US-JennyNeural":    "Jenny - Grandma Marta",
+  "pt-BR-AntonioNeural":  "Antonio (Brasil)",
+  "pt-BR-FranciscaNeural":"Francisca - Vovo Marta"
+};
+
+function actualizarVoz() {
+  var display = document.getElementById("voz-display");
+  var hiddenVoz = document.getElementById("voz");
+  if (todosIdiomas) {
+    var voces = VOCES[canalBase];
+    hiddenVoz.value = voces.es;
+    display.innerHTML =
+      "<span>[ES] " + NOMBRES_VOCES[voces.es] + "</span>" +
+      "<span>[EN] " + NOMBRES_VOCES[voces.en] + "</span>" +
+      "<span>[PT] " + NOMBRES_VOCES[voces.pt] + "</span>";
+    display.style.borderColor = "#E87830";
+    display.style.color = "#E87830";
+  } else {
+    var voz = VOCES[canalBase][idioma];
+    hiddenVoz.value = voz;
+    display.innerHTML = "<span>[" + idioma.toUpperCase() + "] " + NOMBRES_VOCES[voz] + "</span>";
+    display.style.borderColor = "#2a4a2a";
+    display.style.color = "#4caf50";
+  }
+}
+
+
+function switchTabScript(idioma) {
+  document.querySelectorAll("#chk-scripts-multi .tab-idioma").forEach(function(t,i){
+    t.className = "tab-idioma" + (["es","en","pt"][i]===idioma?" activo":"");
+  });
+  ["es","en","pt"].forEach(function(i){
+    document.getElementById("script-panel-"+i).className = "tab-panel"+(i===idioma?" activo":"");
+  });
+}
+
+function switchTabAudio(idioma) {
+  document.querySelectorAll("#chk-audios-multi .tab-idioma").forEach(function(t,i){
+    t.className = "tab-idioma" + (["es","en","pt"][i]===idioma?" activo":"");
+  });
+  ["es","en","pt"].forEach(function(i){
+    document.getElementById("audio-panel-"+i).className = "tab-panel"+(i===idioma?" activo":"");
+  });
+}
+
+function mostrarScriptsMulti(data) {
+  if (checkpointActual === "scripts_multi") return;
+  checkpointActual = "scripts_multi";
+  var scripts = data.scripts || {};
+  ["es","en","pt"].forEach(function(i){
+    var el = document.getElementById("script-editor-"+i);
+    if (el) el.value = scripts[i] || "";
+  });
+  document.getElementById("chk-scripts-multi").classList.add("visible");
+}
+
+function mostrarAudiosMulti(data) {
+  if (checkpointActual === "audios_multi") return;
+  checkpointActual = "audios_multi";
+  var scripts = data.scripts || {};
+  ["es","en","pt"].forEach(function(i){
+    var preview = document.getElementById("script-preview-"+i);
+    if (preview) preview.textContent = scripts[i] || "";
+    var audio = document.getElementById("audio-player-"+i);
+    if (audio) { audio.src = "/audio_multi/"+i; audio.load(); }
+  });
+  document.getElementById("chk-audios-multi").classList.add("visible");
+}
+
+function aprobarScriptsMulti() {
+  var scripts = {};
+  ["es","en","pt"].forEach(function(i){
+    var el = document.getElementById("script-editor-"+i);
+    if (el) scripts[i] = el.value;
+  });
+  ocultarCheckpoints();
+  checkpointActual = null;
+  fetch("/aprobar_multi", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({scripts:scripts})});
+}
+
+function mostrarPestana(p) {
+  document.getElementById("panel-generar").style.display = p==="generar"?"block":"none";
+  document.getElementById("panel-biblioteca").style.display = p==="biblioteca"?"block":"none";
+  document.getElementById("tab-generar").className = "tab"+(p==="generar"?" activo":"");
+  document.getElementById("tab-biblioteca").className = "tab"+(p==="biblioteca"?" activo":"");
+  if (p==="biblioteca") cargarBiblioteca("todos");
+}
+
+function selectCanalBase(el, c) {
+  document.querySelectorAll(".canal-card").forEach(function(x){ x.classList.remove("selected"); });
+  el.classList.add("selected");
+  canalBase = c;
+  actualizarVoz();
+}
+
+function selectIdioma(i) {
+  if (todosIdiomas) return;
+  idioma = i;
+  document.querySelectorAll(".idioma-card").forEach(function(x){ x.classList.remove("selected"); });
+  document.getElementById("idioma-" + i).classList.add("selected");
+  actualizarVoz();
+}
+
+function toggleTodosIdiomas(cb) {
+  todosIdiomas = cb.checked;
+  document.querySelectorAll(".idioma-card").forEach(function(x){
+    x.style.opacity = todosIdiomas ? "0.4" : "1";
+    x.style.pointerEvents = todosIdiomas ? "none" : "auto";
+  });
+  actualizarVoz();
+}
+
+function generarVideo() {
+  var tema = document.getElementById("tema").value.trim();
+  if (!tema) { alert("Ingresa el tema"); return; }
+  document.getElementById("btn-gen").disabled = true;
+  document.getElementById("btn-gen").textContent = "Generando...";
+  document.getElementById("status-box").classList.add("visible");
+  document.getElementById("result-box").classList.remove("visible");
+  ocultarCheckpoints();
+  checkpointActual = null;
+  if (todosIdiomas) {
+    fetch("/generar_todos", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({
+      canal_base: canalBase, tema: tema,
+      duracion: document.getElementById("duracion").value,
+      privacidad: document.getElementById("privacidad").value,
+      imagenes: document.getElementById("imagenes").value
+    })}).then(function(){ polling = setInterval(checkStatus, 3000); });
+  } else {
+    var canal = canalBase + "_" + idioma;
+    fetch("/generar", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({
+      canal: canal, tema: tema,
+      duracion: document.getElementById("duracion").value,
+      voz: document.getElementById("voz").value,
+      privacidad: document.getElementById("privacidad").value,
+      imagenes: document.getElementById("imagenes").value
+    })}).then(function(){ polling = setInterval(checkStatus, 3000); });
+  }
+}
+
+function ocultarCheckpoints() {
+  ["chk-script","chk-audio","chk-imagenes","chk-scripts-multi","chk-audios-multi"].forEach(function(id){
+    document.getElementById(id).classList.remove("visible");
+  });
+  var a = document.getElementById("audio-player");
+  a.pause(); a.removeAttribute("src");
+}
+
+function mostrarScript(data) {
+  if (checkpointActual === "script") return;
+  checkpointActual = "script";
+  document.getElementById("script-editor").value = data.script || "";
+  document.getElementById("chk-script").classList.add("visible");
+}
+
+function mostrarAudio(data) {
+  if (checkpointActual === "audio") return;
+  checkpointActual = "audio";
+  document.getElementById("script-preview").textContent = data.script || "";
+  var a = document.getElementById("audio-player");
+  a.src = "/audio"; a.load();
+  document.getElementById("chk-audio").classList.add("visible");
+}
+
+function mostrarImagenes(data) {
+  if (checkpointActual === "imagenes") return;
+  checkpointActual = "imagenes";
+  var grid = document.getElementById("images-grid");
+  grid.innerHTML = "";
+  (data.imagenes || []).forEach(function(p, i) {
+    var wrap = document.createElement("div");
+    wrap.style.position = "relative";
+    var img = document.createElement("img");
+    img.src = "/imagen/" + i + "?t=" + Date.now();
+    img.onerror = function(){ this.parentElement.style.display = "none"; };
+    wrap.appendChild(img);
+    var btn = document.createElement("button");
+    btn.className = "img-delete";
+    btn.textContent = "x Eliminar";
+    btn.onclick = (function(idx){ return function(){ eliminarImagen(idx); }; })(i);
+    wrap.appendChild(btn);
+    grid.appendChild(wrap);
+  });
+  document.getElementById("chk-imagenes").classList.add("visible");
+}
+
+function eliminarImagen(idx) {
+  fetch("/eliminar_imagen/" + idx, {method:"POST"}).then(function(r){ return r.json(); }).then(function(){
+    checkpointActual = null; setTimeout(mostrarImagenesRefresh, 300);
+  });
+}
+
+function mostrarImagenesRefresh() {
+  fetch("/status").then(function(r){ return r.json(); }).then(function(data){
+    if (data.checkpoint === "imagenes") { checkpointActual = null; mostrarImagenes(data.checkpoint_data); }
+  });
+}
+
+function subirImagenes(files) {
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) fd.append("files", files[i]);
+  fetch("/subir_imagenes", {method:"POST", body:fd}).then(function(r){ return r.json(); }).then(function(data){
+    if (data.info) alert(data.info);
+    document.getElementById("file-upload").value = "";
+    checkpointActual = null; setTimeout(mostrarImagenesRefresh, 300);
+  });
+}
+
+function aprobarScript() {
+  var s = document.getElementById("script-editor").value;
+  ocultarCheckpoints(); checkpointActual = null;
+  fetch("/aprobar", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({script:s})});
+}
+
+function aprobar() {
+  ocultarCheckpoints(); checkpointActual = null;
+  fetch("/aprobar", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({})});
+}
+
+function rechazar() {
+  ocultarCheckpoints(); checkpointActual = null;
+  fetch("/rechazar", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({})});
+}
+
+function checkStatus() {
+  fetch("/status").then(function(r){ return r.json(); }).then(function(data){
+    var c = document.getElementById("steps-container");
+    c.innerHTML = "";
+    var icons = {done:"V",active:"...",error:"X",checkpoint:"||"};
+    data.steps.forEach(function(s){
+      var d = document.createElement("div");
+      d.className = "status-step step-" + s.estado;
+      d.innerHTML = "<span>" + (icons[s.estado]||"o") + "</span><span>" + s.mensaje + "</span>";
+      c.appendChild(d);
+    });
+    if (data.checkpoint === "scripts_multi") mostrarScriptsMulti(data.checkpoint_data);
+    else if (data.checkpoint === "audios_multi") mostrarAudiosMulti(data.checkpoint_data);
+    else if (data.checkpoint === "script") mostrarScript(data.checkpoint_data);
+    else if (data.checkpoint === "audio") mostrarAudio(data.checkpoint_data);
+    else if (data.checkpoint === "imagenes") mostrarImagenes(data.checkpoint_data);
+    if (!data.running && !data.checkpoint) {
+      clearInterval(polling);
+      document.getElementById("btn-gen").disabled = false;
+      document.getElementById("btn-gen").textContent = "Generar video";
+      if (data.video_url) {
+        document.getElementById("result-box").classList.add("visible");
+        document.getElementById("video-link").href = data.video_url;
+      }
+    }
+  });
+}
+
+function cargarBiblioteca(filtro) {
+  document.querySelectorAll(".btn-filtro").forEach(function(b){ b.classList.remove("activo"); });
+  var btn = document.getElementById("filtro-" + filtro);
+  if (btn) btn.classList.add("activo");
+  var grid = document.getElementById("biblioteca-grid");
+  grid.innerHTML = "<div style='color:#555;text-align:center;padding:2rem'>Cargando...</div>";
+  fetch("/biblioteca?canal=" + filtro).then(function(r){ return r.json(); }).then(function(videos){
+    if (!videos.length) {
+      grid.innerHTML = "<div style='color:#555;text-align:center;padding:2rem'>No hay videos aun</div>";
+      return;
+    }
+    grid.innerHTML = "";
+    videos.forEach(function(v){
+      var ic = {futbol_es:"Fut ES",futbol_en:"Fut EN",futbol_pt:"Fut PT",cuentos_es:"Cue ES",cuentos_en:"Cue EN",cuentos_pt:"Cue PT",biografias_es:"Bio ES",biografias_en:"Bio EN",biografias_pt:"Bio PT"}[v.canal] || v.canal;
+      var card = document.createElement("div");
+      card.className = "video-card";
+      var th = v.tiene_thumbnail
+      var th = v.tiene_thumbnail
+        ? "<img src='/biblioteca/thumbnail/" + v.carpeta + "' onerror='this.parentElement.innerHTML=\"<span>" + ic + "</span>\"'>"
+        : "<span>" + ic + "</span>";
+        "<div class='video-thumb'>" + th + "</div>" +
+        "<div class='video-info'>" +
+          "<div class='video-tema'>" + v.tema + "</div>" +
+          "<div class='video-meta'><span class='canal-badge canal-" + v.canal + "'>" + (v.canal_nombre||v.canal) + "</span>" + (v.fecha||"") + " - " + (v.duracion||"") + "</div>" +
+          "<div class='video-actions'>" +
+            (v.youtube_url ? "<button class='video-btn video-btn-yt' onclick='window.open(`" + v.youtube_url + "`,`_blank`)'>Ver YouTube</button>" : "") +
+            (v.tiene_script ? "<button class='video-btn video-btn-script' onclick='verScript(`" + v.carpeta + "`,`" + v.tema.replace(/'/g,"") + "`)'>Script</button>" : "") +
+            "<button class='video-btn video-btn-reusar' onclick='reutilizar(`" + v.tema.replace(/'/g,"") + "`,`" + v.canal + "`)'>Reutilizar</button>" +
+          "</div>" +
+        "</div>";
+      grid.appendChild(card);
+    });
+  });
+}
+
+function verScript(carpeta, titulo) {
+  fetch("/biblioteca/script/" + carpeta).then(function(r){ return r.json(); }).then(function(data){
+    if (data.script) {
+      document.getElementById("modal-titulo").textContent = titulo || "Script";
+      document.getElementById("modal-contenido").textContent = data.script;
+      document.getElementById("modal-script").style.display = "flex";
+    }
+  });
+}
+
+function cerrarModal() { document.getElementById("modal-script").style.display = "none"; }
+
+function reutilizar(tema, canalVideo) {
+  mostrarPestana("generar");
+  document.getElementById("tema").value = tema;
+  document.querySelectorAll(".canal-card").forEach(function(c){ c.classList.remove("selected"); });
+  var base = canalVideo.split("_")[0];
+  var idx = {futbol:0, cuentos:1, biografias:2}[base];
+  if (idx !== undefined) {
+    document.querySelectorAll(".canal-card")[idx].classList.add("selected");
+    canalBase = base;
+    actualizarVoz();
+  }
+}
+</script>
+</body>
+</html>

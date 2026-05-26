@@ -1,0 +1,14 @@
+{
+  "nombre": "Histórias Mundialistas",
+  "idioma": "pt",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_futbol_pt.pickle",
+  "voz_default": "pt-BR-AntonioNeural",
+  "estilo_imagenes": "vintage soccer, dramatic stadium, historical football, cinematic",
+  "tags": [
+    "futebol",
+    "história",
+    "mundiais"
+  ],
+  "prompt_sistema": "Voce e um narrador apaixonado de historias do futebol mundial. Escreva sempre em portugues."
+}

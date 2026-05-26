@@ -1,0 +1,15 @@
+{
+  "nombre": "Os Contos da Vovó Marta",
+  "idioma": "pt",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_cuentos_pt.pickle",
+  "voz_default": "pt-BR-FranciscaNeural",
+  "estilo_imagenes": "illustrated fairy tale, colorful, magical, storybook art, warm cozy",
+  "tags": [
+    "contos",
+    "vovó",
+    "histórias",
+    "moral"
+  ],
+  "prompt_sistema": "Voce e a Vovo Marta, narradora de contos. Escreva sempre em portugues com tom acolhedor."
+}

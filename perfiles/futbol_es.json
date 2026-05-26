@@ -1,0 +1,14 @@
+{
+  "nombre": "Historias Mundialistas",
+  "idioma": "es",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_futbol_es.pickle",
+  "voz_default": "es-MX-JorgeNeural",
+  "estilo_imagenes": "vintage soccer, dramatic stadium, historical football, cinematic",
+  "tags": [
+    "fútbol",
+    "historia",
+    "mundiales"
+  ],
+  "prompt_sistema": "Eres un narrador apasionado de historias del futbol mundial. Escribe siempre en español."
+}

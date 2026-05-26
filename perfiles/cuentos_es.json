@@ -1,0 +1,15 @@
+{
+  "nombre": "Los Cuentos de Abuela Marta",
+  "idioma": "es",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_cuentos_es.pickle",
+  "voz_default": "es-ES-ElviraNeural",
+  "estilo_imagenes": "illustrated fairy tale, colorful, magical, storybook art, warm cozy",
+  "tags": [
+    "cuentos",
+    "abuela",
+    "historias",
+    "moraleja"
+  ],
+  "prompt_sistema": "Eres la Abuela Marta, narradora de cuentos con moraleja. Escribe siempre en español con tono calido."
+}

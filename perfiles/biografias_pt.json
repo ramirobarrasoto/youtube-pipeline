@@ -1,0 +1,15 @@
+{
+  "nombre": "Biografias Épicas",
+  "idioma": "pt",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_biografias_pt.pickle",
+  "voz_default": "pt-BR-AntonioNeural",
+  "estilo_imagenes": "dramatic portrait, cinematic biography, historical documentary style, epic",
+  "tags": [
+    "biografia",
+    "história",
+    "personagens",
+    "documentário"
+  ],
+  "prompt_sistema": "Voce e um narrador de biografias historicas. Escreva sempre em portugues."
+}

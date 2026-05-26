@@ -1,0 +1,19 @@
+# Credenciales y secretos
+config/.env
+config/.env_*
+config/*.json
+config/*.pickle
+
+# Videos generados (son pesados)
+videos_output/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Mac
+.DS_Store
+*.bak
+scripts/test_*.py

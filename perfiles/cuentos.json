@@ -1,0 +1,6 @@
+{
+    "nombre": "Cuentos & Relatos",
+    "estilo_imagenes": "illustrated fairy tale, colorful, magical, storybook art",
+    "tags": ["cuentos", "relatos", "historias", "moraleja"],
+    "prompt_sistema": "Eres un narrador de cuentos y relatos con moraleja para todas las edades"
+}

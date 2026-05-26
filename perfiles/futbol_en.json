@@ -1,0 +1,14 @@
+{
+  "nombre": "World Football History",
+  "idioma": "en",
+  "env_file": "config/.env",
+  "youtube_token": "config/token_futbol_en.pickle",
+  "voz_default": "en-US-GuyNeural",
+  "estilo_imagenes": "vintage soccer, dramatic stadium, historical football, cinematic",
+  "tags": [
+    "football",
+    "history",
+    "worldcup"
+  ],
+  "prompt_sistema": "You are a passionate narrator of world football history. Always write in English."
+}
