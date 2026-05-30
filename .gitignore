@@ -3,6 +3,7 @@ config/.env
 config/.env_*
 config/*.json
 config/*.pickle
+!config/.env.example
 
 # Videos generados (son pesados)
 videos_output/

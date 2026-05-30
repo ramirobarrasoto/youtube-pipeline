@@ -67,8 +67,15 @@ def generar_video(
     images_dir,
     output_path,
     fps=24,
-    transicion_duracion=0.5
+    transicion_duracion=0.5,
+    plan_produccion=None,
 ):
+    """
+    Genera el video Ken Burns sincronizado con el audio.
+
+    Si plan_produccion se proporciona, cada imagen dura lo que indica la escena
+    correspondiente. Si no, la duración se divide equitativamente.
+    """
     print("⏳ Cargando audio...")
     audio = AudioFileClip(audio_path)
     duracion_total = audio.duration
@@ -86,21 +93,44 @@ def generar_video(
 
     print(f"✅ {len(imagenes)} imágenes encontradas")
 
-    duracion_por_imagen = duracion_total / len(imagenes)
-    print(f"⏳ Duración por imagen: {duracion_por_imagen:.1f} segundos")
+    # Calcular duración por imagen
+    if plan_produccion and "escenas" in plan_produccion:
+        escenas = plan_produccion["escenas"]
+        # Reescalar timings del plan a la duración real del audio
+        max_fin_plan = max(e.get("fin", 0) for e in escenas)
+        if max_fin_plan > 0:
+            factor = duracion_total / max_fin_plan
+            duraciones = []
+            for i, escena in enumerate(escenas[:len(imagenes)]):
+                dur = (escena.get("fin", 0) - escena.get("inicio", 0)) * factor
+                duraciones.append(max(dur, 1.0))
+            # Si hay más imágenes que escenas, repartir el tiempo restante
+            if len(imagenes) > len(duraciones):
+                tiempo_usado = sum(duraciones)
+                tiempo_restante = max(duracion_total - tiempo_usado, 0)
+                extras = len(imagenes) - len(duraciones)
+                duraciones += [tiempo_restante / extras] * extras
+        else:
+            duraciones = [duracion_total / len(imagenes)] * len(imagenes)
+        print(f"⏳ Duraciones sincronizadas con Plan de Producción ({len(escenas)} escenas)")
+    else:
+        dur_igual = duracion_total / len(imagenes)
+        duraciones = [dur_igual] * len(imagenes)
+        print(f"⏳ Duración por imagen: {dur_igual:.1f} segundos")
 
     print("⏳ Aplicando efecto Ken Burns...")
     clips = []
     for i, img_path in enumerate(imagenes):
-        print(f"  Procesando imagen {i+1}/{len(imagenes)}...")
+        dur = duraciones[i] if i < len(duraciones) else duraciones[-1]
+        print(f"  Procesando imagen {i+1}/{len(imagenes)} ({dur:.1f}s)...")
         try:
-            clip = crear_clip_con_kenburns(img_path, duracion_por_imagen, fps)
+            clip = crear_clip_con_kenburns(img_path, dur, fps)
             clips.append(clip)
         except Exception as e:
             print(f"  ⚠️ Error en imagen {i+1}: {e}")
             img = Image.open(str(img_path)).convert("RGB")
             img = img.resize((1080, 1920), Image.LANCZOS)
-            clip = ImageClip(np.array(img)).set_duration(duracion_por_imagen)
+            clip = ImageClip(np.array(img)).set_duration(dur)
             clips.append(clip)
 
     print("⏳ Concatenando clips...")
@@ -115,7 +145,7 @@ def generar_video(
         codec="libx264",
         audio_codec="aac",
         verbose=False,
-        logger=None
+        logger=None,
     )
 
     print(f"✅ Video guardado en: {output_path}")

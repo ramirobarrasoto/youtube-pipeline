@@ -50,6 +50,7 @@ def esperar_checkpoint(tipo, data={}):
 def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes, genero_musica="sin_musica"):
     global pipeline_status
     pipeline_status = {"running": True, "steps": [], "error": None, "video_url": None, "checkpoint": None, "checkpoint_data": {}}
+    plan_produccion = None
     try:
         os.chdir(BASE_DIR)
         with open(f"perfiles/{canal}.json") as f:
@@ -62,16 +63,26 @@ def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes, gene
         base_dir = f"videos_output/{canal}/{nombre_carpeta}"
         os.makedirs(f"{base_dir}/images", exist_ok=True)
 
-        log_step("Generando script...")
-        from generar_script import generar_script
-        script = generar_script(tema, duracion=duracion, sistema=perfil.get("prompt_sistema"))
+        # ── Director IA ───────────────────────────────────────────────────
+        log_step("Consultando Director IA...")
+        from director import generar_plan, plan_a_script, plan_a_queries
+        estilo = perfil.get("estilo_imagenes", "cinematic, dramatic")
+        plan_produccion = generar_plan(
+            tema=tema,
+            duracion=duracion,
+            estilo=estilo,
+            sistema=perfil.get("prompt_sistema"),
+        )
+        script = plan_a_script(plan_produccion)
+        with open(f"{base_dir}/plan.json", "w") as f:
+            json.dump(plan_produccion, f, ensure_ascii=False, indent=2)
         with open(f"{base_dir}/script.txt", "w") as f:
             f.write(script)
-        log_step("Script generado", "done")
+        log_step("Plan de produccion generado", "done")
 
         script_editado["value"] = script
         log_step("Esperando revision del script...", "checkpoint")
-        esperar_checkpoint("script", {"script": script})
+        esperar_checkpoint("script", {"script": script, "plan": plan_produccion})
         script = script_editado["value"]
         with open(f"{base_dir}/script.txt", "w") as f:
             f.write(script)
@@ -92,20 +103,54 @@ def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes, gene
             esperar_checkpoint("audio", {"audio_path": audio_path, "script": script})
         log_step("Audio aprobado", "done")
 
+        # Reescalar timings del plan a la duración real del audio
+        try:
+            from moviepy.editor import AudioFileClip as _AFC
+            from director import reescalar_timings
+            _audio_tmp = _AFC(audio_path)
+            duracion_real = _audio_tmp.duration
+            _audio_tmp.close()
+            plan_produccion = reescalar_timings(plan_produccion, duracion_real)
+            with open(f"{base_dir}/plan.json", "w") as f:
+                json.dump(plan_produccion, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"No se pudo reescalar timings: {e}")
+
         log_step("Generando imagenes...")
         from generar_imagenes import generar_imagenes
         images_dir = os.path.join(BASE_DIR, f"{base_dir}/images")
-        estilo = perfil.get("estilo_imagenes", "cinematic, dramatic")
-        generar_imagenes(tema, output_dir=images_dir, cantidad=int(cantidad_imagenes), estilo=estilo)
+        queries = plan_a_queries(plan_produccion)[:int(cantidad_imagenes)]
+        generar_imagenes(
+            tema,
+            output_dir=images_dir,
+            cantidad=int(cantidad_imagenes),
+            estilo=estilo,
+            queries=queries if queries else None,
+        )
         log_step("Imagenes generadas", "done")
 
-        imagenes = [os.path.join(BASE_DIR, f"{base_dir}/images/img{i+1}.jpg") for i in range(int(cantidad_imagenes))]
+        imagenes = sorted(
+            [os.path.join(images_dir, f) for f in os.listdir(images_dir)
+             if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))],
+            key=lambda p: os.path.basename(p)
+        )
         log_step("Esperando aprobacion de imagenes...", "checkpoint")
         aprobado = esperar_checkpoint("imagenes", {"imagenes": imagenes})
         if not aprobado:
             log_step("Regenerando imagenes...", "active")
-            generar_imagenes(tema, output_dir=images_dir, cantidad=int(cantidad_imagenes), estilo=estilo)
+            generar_imagenes(
+                tema,
+                output_dir=images_dir,
+                cantidad=int(cantidad_imagenes),
+                estilo=estilo,
+                queries=queries if queries else None,
+            )
             log_step("Imagenes regeneradas", "done")
+            imagenes = sorted(
+                [os.path.join(images_dir, f) for f in os.listdir(images_dir)
+                 if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))],
+                key=lambda p: os.path.basename(p)
+            )
             esperar_checkpoint("imagenes", {"imagenes": imagenes})
         log_step("Imagenes aprobadas", "done")
 
@@ -118,6 +163,7 @@ def run_pipeline(canal, tema, duracion, voz, privacidad, cantidad_imagenes, gene
             output_dir=os.path.join(BASE_DIR, base_dir),
             con_subtitulos=True,
             genero_musica=genero_musica,
+            plan_produccion=plan_produccion,
         )
         log_step("Video compilado", "done")
 
@@ -173,25 +219,37 @@ def run_pipeline_multiidioma(canal_base, tema, duracion, privacidad, cantidad_im
         base_dir = f"videos_output/{canal_base}/{nombre_carpeta}"
         os.makedirs(f"{base_dir}/images", exist_ok=True)
         
-        # PASO 1: Generar los 3 scripts
-        log_step("Generando scripts en ES, EN y PT...")
-        from generar_script import generar_script
+        # PASO 1: Generar los 3 scripts via Director IA
+        log_step("Consultando Director IA para ES, EN y PT...")
+        from director import generar_plan, plan_a_script, plan_a_queries, reescalar_timings
+        planes = {}
         for idioma in idiomas:
             perfil = perfiles[idioma]
-            log_step(f"Generando script [{idioma.upper()}]...")
-            script = generar_script(tema, duracion=duracion, sistema=perfil.get("prompt_sistema"))
+            log_step(f"Director IA [{idioma.upper()}]...")
+            estilo = perfil.get("estilo_imagenes", "cinematic, dramatic")
+            plan = generar_plan(
+                tema=tema,
+                duracion=duracion,
+                estilo=estilo,
+                sistema=perfil.get("prompt_sistema"),
+            )
+            planes[idioma] = plan
+            script = plan_a_script(plan)
             scripts[idioma] = script
             os.makedirs(f"{base_dir}/{idioma}", exist_ok=True)
+            with open(f"{base_dir}/{idioma}/plan.json", "w") as f:
+                json.dump(plan, f, ensure_ascii=False, indent=2)
             with open(f"{base_dir}/{idioma}/script.txt", "w") as f:
                 f.write(script)
-            log_step(f"Script [{idioma.upper()}] generado", "done")
+            log_step(f"Plan [{idioma.upper()}] generado", "done")
         
         # CHECKPOINT 1: Revisar los 3 scripts con tabs
         script_editado_multi["value"] = dict(scripts)
         log_step("Esperando revision de scripts...", "checkpoint")
         esperar_checkpoint("scripts_multi", {
             "scripts": scripts,
-            "idiomas": idiomas
+            "idiomas": idiomas,
+            "planes": {k: v for k, v in planes.items()},
         })
         scripts = dict(script_editado_multi["value"])
         for idioma in idiomas:
@@ -219,22 +277,57 @@ def run_pipeline_multiidioma(canal_base, tema, duracion, privacidad, cantidad_im
         })
         log_step("Audios aprobados", "done")
         
-        # PASO 3: Imágenes (compartidas)
+        # Reescalar timings de cada plan al audio real generado
+        from moviepy.editor import AudioFileClip as _AFC
+        for idioma in idiomas:
+            try:
+                _a = _AFC(audios[idioma])
+                dur_real = _a.duration
+                _a.close()
+                planes[idioma] = reescalar_timings(planes[idioma], dur_real)
+                with open(f"{base_dir}/{idioma}/plan.json", "w") as f:
+                    json.dump(planes[idioma], f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.warning(f"No se pudo reescalar timings [{idioma}]: {e}")
+
+        # PASO 3: Imágenes (compartidas, usando queries del plan ES)
         log_step("Generando imagenes...")
         from generar_imagenes import generar_imagenes
         images_dir = os.path.join(BASE_DIR, f"{base_dir}/images")
         estilo = perfiles["es"].get("estilo_imagenes", "cinematic, dramatic")
-        generar_imagenes(tema, output_dir=images_dir, cantidad=int(cantidad_imagenes), estilo=estilo)
+        queries_es = plan_a_queries(planes["es"])[:int(cantidad_imagenes)]
+        generar_imagenes(
+            tema,
+            output_dir=images_dir,
+            cantidad=int(cantidad_imagenes),
+            estilo=estilo,
+            queries=queries_es if queries_es else None,
+        )
         log_step("Imagenes generadas", "done")
-        
+
         # CHECKPOINT 3: Revisar imágenes
-        imagenes = [os.path.join(BASE_DIR, f"{base_dir}/images/img{i+1}.jpg") for i in range(int(cantidad_imagenes))]
+        imagenes = sorted(
+            [os.path.join(images_dir, f) for f in os.listdir(images_dir)
+             if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))],
+            key=lambda p: os.path.basename(p)
+        )
         log_step("Esperando aprobacion de imagenes...", "checkpoint")
         aprobado = esperar_checkpoint("imagenes", {"imagenes": imagenes})
         if not aprobado:
             log_step("Regenerando imagenes...", "active")
-            generar_imagenes(tema, output_dir=images_dir, cantidad=int(cantidad_imagenes), estilo=estilo)
+            generar_imagenes(
+                tema,
+                output_dir=images_dir,
+                cantidad=int(cantidad_imagenes),
+                estilo=estilo,
+                queries=queries_es if queries_es else None,
+            )
             log_step("Imagenes regeneradas", "done")
+            imagenes = sorted(
+                [os.path.join(images_dir, f) for f in os.listdir(images_dir)
+                 if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))],
+                key=lambda p: os.path.basename(p)
+            )
             esperar_checkpoint("imagenes", {"imagenes": imagenes})
         log_step("Imagenes aprobadas", "done")
         
@@ -256,6 +349,7 @@ def run_pipeline_multiidioma(canal_base, tema, duracion, privacidad, cantidad_im
                 output_dir=os.path.join(BASE_DIR, f"{base_dir}/{idioma}"),
                 con_subtitulos=True,
                 genero_musica=genero_musica,
+                plan_produccion=planes.get(idioma),
             )
             log_step(f"Video [{idioma.upper()}] compilado", "done")
             
@@ -446,6 +540,15 @@ def biblioteca():
                 meta["cantidad_imagenes"] = len([f for f in os.listdir(images_path) if f.endswith((".jpg",".png",".webp"))]) if os.path.exists(images_path) else 0
                 videos.append(meta)
     return jsonify(videos)
+
+@app.route("/plan")
+def get_plan():
+    """Devuelve el plan de producción del checkpoint actual."""
+    data = pipeline_status.get("checkpoint_data", {})
+    plan = data.get("plan")
+    if plan:
+        return jsonify(plan)
+    return jsonify({"error": "No hay plan de producción disponible"}), 404
 
 @app.route("/biblioteca/script/<path:carpeta>")
 def get_script(carpeta):

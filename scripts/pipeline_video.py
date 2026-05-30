@@ -111,6 +111,7 @@ def pipeline_video_completo(
     output_dir: str,
     con_subtitulos: bool = True,
     genero_musica: str | None = None,
+    plan_produccion: dict | None = None,
 ) -> str:
     """
     Ejecuta el pipeline completo:
@@ -136,6 +137,7 @@ def pipeline_video_completo(
         audio_path=audio_path,
         images_dir=images_dir,
         output_path=video_kenburns,
+        plan_produccion=plan_produccion,
     )
 
     # ── Rama sin subtítulos ────────────────────────────────────────────────
