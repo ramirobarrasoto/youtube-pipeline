@@ -132,40 +132,110 @@ def generar_audios_paralelo(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Módulo Gráfico — Imágenes por escena con hook para GPU propia
+# Módulo Gráfico — Imágenes por escena con Gemini / Imagen 3
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _generar_imagen_gpu_propia(prompt: str, output_path: str) -> bool:
+def _ajustar_a_1080x1920(img) -> object:
     """
-    Hook para generación de imágenes en GPU propia (RunPod/Vast.ai).
-
-    Para activar:
-        1. Deployar Flux o SD 3.5 en RunPod/Vast.ai
-        2. Exponer endpoint HTTP: POST /generate { prompt, width, height }
-        3. Setear en config/.env: GPU_API_URL=https://tu-instancia.runpod.io/generate
-
-    Costo estimado: ~$0.003 por imagen en RTX 4090 → $0.54 para 180 escenas.
-    Mientras no esté activo, retorna False y se usa el stack gratuito.
+    Redimensiona la imagen a 1080x1920 manteniendo aspect ratio.
+    Rellena con negro si es necesario — nunca estira ni deforma.
     """
-    gpu_url = os.getenv("GPU_API_URL", "")
-    if not gpu_url:
+    from PIL import Image
+    img = img.convert("RGB")
+    tw, th = 1080, 1920
+    rw, rh = img.size
+    ratio = min(tw / rw, th / rh)
+    nw, nh = int(rw * ratio), int(rh * ratio)
+    img = img.resize((nw, nh), Image.LANCZOS)
+    fondo = Image.new("RGB", (tw, th), (0, 0, 0))
+    fondo.paste(img, ((tw - nw) // 2, (th - nh) // 2))
+    return fondo
+
+
+def _generar_imagen_gemini(prompt: str, output_path: str, reintentos: int = 3) -> bool:
+    """
+    Genera una imagen usando Gemini/Imagen 3 a partir del prompt_visual_ia exacto.
+
+    Prioridad:
+      1. Imagen 3 (imagen-3.0-generate-002) — mayor calidad fotorealista, aspect ratio 9:16 nativo
+      2. Gemini image model (gemini-2.5-flash-image) — fallback si Imagen 3 no está disponible
+    """
+    from google import genai
+    from google.genai import types
+    from PIL import Image
+    from io import BytesIO
+    import base64
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key:
+        print("    ⚠️  GEMINI_API_KEY no configurada")
         return False
-    try:
-        import requests
-        resp = requests.post(
-            gpu_url,
-            json={"prompt": prompt, "width": 1080, "height": 1920, "steps": 20},
-            timeout=120,
-        )
-        if resp.status_code == 200:
-            from PIL import Image
-            from io import BytesIO
-            img = Image.open(BytesIO(resp.content)).convert("RGB")
-            img = img.resize((1080, 1920), Image.LANCZOS)
-            img.save(output_path, "JPEG", quality=95)
-            return True
-    except Exception as exc:
-        print(f"    ⚠️  GPU API error: {exc}")
+
+    client = genai.Client(api_key=api_key)
+    # Reforzar formato vertical en el prompt
+    prompt_final = f"{prompt}, vertical composition 9:16 portrait orientation, ultra detailed 4K"
+
+    for intento in range(reintentos):
+        # ── Intento 1: Imagen 3 (aspect_ratio 9:16 nativo, sin deformación) ──
+        try:
+            response = client.models.generate_images(
+                model="imagen-3.0-generate-002",
+                prompt=prompt_final,
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    aspect_ratio="9:16",
+                    output_mime_type="image/jpeg",
+                ),
+            )
+            if response.generated_images:
+                img_bytes = response.generated_images[0].image.image_bytes
+                img = Image.open(BytesIO(img_bytes))
+                img = _ajustar_a_1080x1920(img)
+                img.save(output_path, "JPEG", quality=95)
+                return True
+        except Exception as exc:
+            err = str(exc)
+            if "429" in err or "quota" in err.lower() or "rate" in err.lower():
+                wait = 60 if intento == 0 else 120
+                print(f"    ⏳ Rate limit Imagen 3, esperando {wait}s...")
+                time.sleep(wait)
+                continue
+            # Si no está disponible en el plan, saltar directo al fallback
+            if "billing" in err.lower() or "not found" in err.lower() or "permission" in err.lower():
+                print(f"    ℹ️  Imagen 3 no disponible ({err[:60]}), usando Gemini image...")
+                break
+            print(f"    ⚠️  Imagen 3 intento {intento+1}: {err[:80]}")
+            time.sleep(5)
+
+        # ── Intento 2: Gemini image model ────────────────────────────────────
+        try:
+            modelo_img = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+            response = client.models.generate_content(
+                model=modelo_img,
+                contents=prompt_final,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                ),
+            )
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "inline_data") and part.inline_data:
+                    data = part.inline_data.data
+                    if isinstance(data, str):
+                        data = base64.b64decode(data)
+                    img = Image.open(BytesIO(data))
+                    img = _ajustar_a_1080x1920(img)
+                    img.save(output_path, "JPEG", quality=95)
+                    return True
+        except Exception as exc:
+            err = str(exc)
+            if "429" in err or "quota" in err.lower() or "rate" in err.lower():
+                wait = 60 if intento == 0 else 120
+                print(f"    ⏳ Rate limit Gemini image, esperando {wait}s...")
+                time.sleep(wait)
+                continue
+            print(f"    ⚠️  Gemini image intento {intento+1}: {err[:80]}")
+            time.sleep(5)
+
     return False
 
 
@@ -173,24 +243,16 @@ def generar_imagenes_escenas(
     escenas: list[dict],
     images_dir: str,
     estilo: str = "cinematic 4K dramatic",
-    max_workers: int = 3,
+    max_workers: int = 2,
 ) -> dict[int, str]:
     """
-    Genera imágenes para todas las escenas usando prompt_visual_ia.
+    Genera imágenes para todas las escenas usando Gemini / Imagen 3.
+    Usa el prompt_visual_ia exacto de cada escena — sin Wikimedia ni Pollinations.
 
-    Prioridad por escena:
-      1. GPU propia (si GPU_API_URL está configurado)
-      2. Stack gratuito: Wikimedia → Pexels → Pollinations
+    max_workers=2 por defecto para respetar los rate limits de la API de imágenes.
+    Saltea escenas que ya tienen imagen guardada (permite reanudar si se interrumpe).
     """
-    import sys
-    scripts_dir = os.path.dirname(os.path.abspath(__file__))
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
-
-    from generar_imagenes import (
-        buscar_imagenes_wikimedia, descargar_imagen_wikimedia,
-        descargar_imagen_pexels, generar_imagen_pollinations,
-    )
+    from PIL import Image as PILImage
 
     os.makedirs(images_dir, exist_ok=True)
     resultados: dict[int, str] = {}
@@ -201,31 +263,20 @@ def generar_imagenes_escenas(
         prompt = escena.get("prompt_visual_ia", "")
         path = os.path.join(images_dir, f"img_{num:04d}.jpg")
 
-        # 1. GPU propia
-        if _generar_imagen_gpu_propia(prompt, path):
+        # Saltar si ya existe (permite reanudar)
+        if os.path.exists(path) and os.path.getsize(path) > 5_000:
             return num, path
 
-        # 2. Wikimedia (para contenido histórico)
-        resultados_wiki = buscar_imagenes_wikimedia(prompt, cantidad=2)
-        for r in resultados_wiki:
-            if descargar_imagen_wikimedia(r["url"], path):
-                return num, path
-
-        # 3. Pexels
-        if os.getenv("PEXELS_API_KEY") and descargar_imagen_pexels(prompt, path):
+        if _generar_imagen_gemini(prompt, path):
             return num, path
 
-        # 4. Pollinations.ai
-        full_prompt = f"{prompt}, {estilo}"
-        if generar_imagen_pollinations(full_prompt, path):
-            return num, path
-
-        # 5. Fallback negro
-        from PIL import Image as PILImage
-        PILImage.new("RGB", (1080, 1920), (20, 20, 20)).save(path)
+        # Fallback: imagen negra con número de escena (nunca bloquea el pipeline)
+        PILImage.new("RGB", (1080, 1920), (15, 15, 15)).save(path, "JPEG", quality=90)
+        print(f"    ⚠️  Escena {num}: fallback imagen negra")
         return num, path
 
-    print(f"  🖼️  Generando {total} imágenes en paralelo (workers: {max_workers})...")
+    print(f"  🎨  Generando {total} imágenes con Gemini/Imagen 3 (workers: {max_workers})...")
+    print(f"  ℹ️  Rate limit: ~10 imágenes/min — estimado {total // 10 + 1} min")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_procesar, e): e["numero_escena"] for e in escenas}
         completados = 0
@@ -233,8 +284,12 @@ def generar_imagenes_escenas(
             num, path = future.result()
             resultados[num] = path
             completados += 1
-            if completados % 20 == 0 or completados == total:
-                print(f"    Imágenes: {completados}/{total} escenas")
+            if completados % 10 == 0 or completados == total:
+                pct = int(completados / total * 100)
+                print(f"    Imágenes: {completados}/{total} ({pct}%)")
+
+    print(f"  ✅ Imágenes generadas: {len(resultados)}/{total}")
+    return resultados
 
     print(f"  ✅ Imágenes generadas: {len(resultados)}/{total}")
     return resultados
