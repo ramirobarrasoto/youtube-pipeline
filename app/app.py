@@ -565,5 +565,108 @@ def get_thumbnail(carpeta):
         return send_file(thumb_path, mimetype="image/jpeg")
     return "No thumbnail", 404
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PIPELINE EXPERIMENTAL V2 — Gemini + FFmpeg (aislado, no toca el pipeline actual)
+# ─────────────────────────────────────────────────────────────────────────────
+
+pipeline_status_v2 = {
+    "running": False, "steps": [], "error": None,
+    "video_path": None, "escenas_total": 0,
+}
+
+
+def log_step_v2(mensaje, estado="active"):
+    existing = [s for s in pipeline_status_v2["steps"] if s["mensaje"] == mensaje]
+    if existing:
+        existing[0]["estado"] = estado
+    else:
+        pipeline_status_v2["steps"].append({"mensaje": mensaje, "estado": estado})
+
+
+def run_pipeline_v2(canal, tema, duracion, voz, privacidad, genero_musica, idioma, estilo_imagenes):
+    global pipeline_status_v2
+    pipeline_status_v2 = {
+        "running": True, "steps": [], "error": None,
+        "video_path": None, "escenas_total": 0,
+    }
+    try:
+        os.chdir(BASE_DIR)
+        sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
+
+        from pipeline_experimental import pipeline_experimental
+        video_path = pipeline_experimental(
+            canal=canal,
+            tema=tema,
+            duracion=duracion,
+            voz=voz,
+            idioma=idioma,
+            privacidad=privacidad,
+            genero_musica=genero_musica,
+            estilo_imagenes=estilo_imagenes,
+            output_base=os.path.join(BASE_DIR, "videos_output"),
+            log_fn=log_step_v2,
+        )
+        pipeline_status_v2["video_path"] = video_path
+    except Exception as e:
+        logger.error(f"Error pipeline V2: {str(e)}", exc_info=True)
+        pipeline_status_v2["error"] = str(e)
+        log_step_v2(f"Error: {str(e)}", "error")
+    finally:
+        pipeline_status_v2["running"] = False
+
+
+@app.route("/api/v2/generar", methods=["POST"])
+def generar_v2():
+    """Endpoint experimental V2 — Gemini + FFmpeg para videos largos."""
+    if pipeline_status_v2["running"]:
+        return jsonify({"error": "Pipeline V2 ya está corriendo"}), 400
+    data = request.json or {}
+    required = ["canal", "tema", "duracion", "voz"]
+    for field in required:
+        if not data.get(field):
+            return jsonify({"error": f"Campo requerido: {field}"}), 400
+
+    thread = threading.Thread(
+        target=run_pipeline_v2,
+        kwargs={
+            "canal":           data["canal"],
+            "tema":            data["tema"],
+            "duracion":        data["duracion"],
+            "voz":             data.get("voz", "es-MX-JorgeNeural"),
+            "privacidad":      data.get("privacidad", "private"),
+            "genero_musica":   data.get("musica", "sin_musica"),
+            "idioma":          data.get("idioma", "español"),
+            "estilo_imagenes": data.get("estilo_imagenes", "cinematic 4K dramatic"),
+        },
+    )
+    thread.daemon = True
+    thread.start()
+    return jsonify({"ok": True, "mensaje": "Pipeline experimental V2 iniciado"})
+
+
+@app.route("/api/v2/status")
+def status_v2():
+    """Estado del pipeline experimental V2."""
+    return jsonify(pipeline_status_v2)
+
+
+@app.route("/api/v2/modelos")
+def modelos_gemini():
+    """Lista los modelos Gemini disponibles con la API key configurada."""
+    try:
+        from google import genai
+        api_key = os.getenv("GEMINI_API_KEY", "")
+        if not api_key:
+            return jsonify({"error": "GEMINI_API_KEY no configurada"}), 400
+        client = genai.Client(api_key=api_key)
+        modelos = [m.name for m in client.models.list()]
+        modelos_flash = [m for m in modelos if "flash" in m.lower() or "pro" in m.lower()]
+        return jsonify({"modelos": modelos_flash, "modelo_actual": os.getenv("GEMINI_MODEL", "gemini-2.5-flash")})
+    except ImportError:
+        return jsonify({"error": "SDK no instalado: pip install google-genai"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(debug=False, port=5000)
