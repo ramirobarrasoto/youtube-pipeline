@@ -216,8 +216,9 @@
     <div class="info-v2" id="info-v2" style="display:none">
       &#9889; <strong>Modo Experimental V2 con Gemini</strong><br>
       Genera el guion dividido en escenas de 5 segundos con JSON estructurado.
-      Una imagen por escena, audio en paralelo, ensamble con FFmpeg.<br>
-      <strong>Sin checkpoints</strong> — el pipeline corre automaticamente hasta el video final.
+      Una imagen por escena (Gemini/Imagen 3), audio en paralelo, ensamble con FFmpeg.<br>
+      <strong>Sin checkpoints</strong> — corre automaticamente hasta el video final.<br>
+      <span style="color:#f59e0b">&#9888; Empezar con <strong>Corto</strong> para probar. Una vez que funcione bien, usar Largo (10 min).</span>
     </div>
 
     <button class="btn-generate" id="btn-gen-visible" onclick="generarVideo()">Generar video</button>
@@ -361,9 +362,9 @@ function setModo(modo) {
   document.getElementById("info-v2").style.display = esV2 ? "block" : "none";
   document.getElementById("btn-gen-visible").style.display = esV2 ? "none" : "block";
   document.getElementById("btn-gen-v2").style.display = esV2 ? "block" : "none";
-  // En V2 forzar duracion largo
+  // En V2 forzar duracion corto para pruebas
   if (esV2) {
-    document.getElementById("duracion").value = "largo";
+    document.getElementById("duracion").value = "corto";
   }
 }
 
