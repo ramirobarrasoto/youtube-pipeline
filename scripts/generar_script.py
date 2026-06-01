@@ -85,9 +85,28 @@ def generar_script(tema, duracion="corto", sistema=None, intentos=3):
                     ],
                     "max_tokens": 2048
                 },
-                timeout=180
+                timeout=300
             )
-            data = response.json()
+            if response.status_code != 200:
+                print(f"  Error HTTP {response.status_code}: {response.text}")
+                if intento < intentos - 1:
+                    print(f"  Reintentando en 10 segundos...")
+                    time.sleep(10)
+                continue
+            try:
+                data = response.json()
+            except ValueError:
+                print(f"  Error parseando JSON: {response.text}")
+                if intento < intentos - 1:
+                    print(f"  Reintentando en 10 segundos...")
+                    time.sleep(10)
+                continue
+            if not data.get("choices") or not data["choices"][0].get("message"):
+                print(f"  Respuesta inesperada: {json.dumps(data, ensure_ascii=False)[:1000]}")
+                if intento < intentos - 1:
+                    print(f"  Reintentando en 10 segundos...")
+                    time.sleep(10)
+                continue
             texto = data["choices"][0]["message"]["content"]
             
             # Limpiar razonamiento
@@ -97,7 +116,8 @@ def generar_script(tema, duracion="corto", sistema=None, intentos=3):
                 return texto_limpio
             else:
                 print(f"  Script muy corto o en inglés, reintentando...")
-                time.sleep(5)
+                if intento < intentos - 1:
+                    time.sleep(10)
                 continue
                 
         except Exception as e:

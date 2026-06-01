@@ -73,6 +73,9 @@
   .video-btn-yt { background: rgba(244,67,54,0.15); color: #ef9a9a; border: 1px solid rgba(244,67,54,0.3); }
   .video-btn-script { background: rgba(33,150,243,0.15); color: #64b5f6; border: 1px solid rgba(33,150,243,0.3); }
   .video-btn-reusar { background: rgba(232,120,48,0.15); color: #E87830; border: 1px solid rgba(232,120,48,0.3); }
+  .video-btn-rehacer { background: rgba(76,175,80,0.15); color: #81c784; border: 1px solid rgba(76,175,80,0.3); }
+  .video-card-incompleto { border-color: #3a3a1a; }
+  .badge-incompleto { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; background:rgba(255,193,7,0.15); color:#ffd54f; margin-left:4px; }
   .canal-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; margin-right: 6px; }
   .canal-futbol_es,.canal-futbol_en,.canal-futbol_pt { background: rgba(232,120,48,0.15); color: #E87830; }
   .canal-cuentos_es,.canal-cuentos_en,.canal-cuentos_pt { background: rgba(33,150,243,0.15); color: #64b5f6; }
@@ -301,6 +304,26 @@
       <div class="modal-title" id="modal-titulo">Script</div>
       <div class="modal-script" id="modal-contenido"></div>
       <button class="modal-close" onclick="cerrarModal()">Cerrar</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-rehacer" style="display:none" onclick="cerrarModalRehacer()">
+    <div class="modal-box" onclick="event.stopPropagation()" style="max-width:380px">
+      <div class="modal-title">Rehacer video</div>
+      <div style="font-size:13px;color:#888;margin-bottom:1rem" id="rehacer-info"></div>
+      <div class="option-group" style="margin-bottom:1.2rem">
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Musica de fondo</label>
+        <select id="rehacer-musica">
+          <option value="sin_musica">Sin musica</option>
+          <option value="epico">&#9876; Epico / Orquestal</option>
+          <option value="dramatico">&#127999; Dramatico</option>
+          <option value="aventura">&#128640; Aventura</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="modal-close" style="flex:1;margin-top:0" onclick="cerrarModalRehacer()">Cancelar</button>
+        <button class="btn-generate" style="flex:1;margin-top:0" onclick="confirmarRehacer()">Rehacer video</button>
+      </div>
     </div>
   </div>
 </div>
@@ -591,19 +614,22 @@ function cargarBiblioteca(filtro) {
     videos.forEach(function(v){
       var ic = {futbol_es:"Fut ES",futbol_en:"Fut EN",futbol_pt:"Fut PT",cuentos_es:"Cue ES",cuentos_en:"Cue EN",cuentos_pt:"Cue PT",biografias_es:"Bio ES",biografias_en:"Bio EN",biografias_pt:"Bio PT"}[v.canal] || v.canal;
       var card = document.createElement("div");
-      card.className = "video-card";
-      var th = v.tiene_thumbnail
+      card.className = "video-card" + (v.incompleto ? " video-card-incompleto" : "");
       var th = v.tiene_thumbnail
         ? "<img src='/biblioteca/thumbnail/" + v.carpeta + "' onerror='this.parentElement.innerHTML=\"<span>" + ic + "</span>\"'>"
         : "<span>" + ic + "</span>";
+      var idiomaLabel = v.idioma_video ? " [" + v.idioma_video.toUpperCase() + "]" : "";
+      var incBadge = v.incompleto ? "<span class='badge-incompleto'>sin video</span>" : "";
+      card.innerHTML =
         "<div class='video-thumb'>" + th + "</div>" +
         "<div class='video-info'>" +
-          "<div class='video-tema'>" + v.tema + "</div>" +
-          "<div class='video-meta'><span class='canal-badge canal-" + v.canal + "'>" + (v.canal_nombre||v.canal) + "</span>" + (v.fecha||"") + " - " + (v.duracion||"") + "</div>" +
+          "<div class='video-tema'>" + v.tema + idiomaLabel + incBadge + "</div>" +
+          "<div class='video-meta'><span class='canal-badge canal-" + v.canal + "'>" + (v.canal_nombre||v.canal) + "</span>" + (v.fecha||"") + (v.duracion ? " - " + v.duracion : "") + "</div>" +
           "<div class='video-actions'>" +
             (v.youtube_url ? "<button class='video-btn video-btn-yt' onclick='window.open(`" + v.youtube_url + "`,`_blank`)'>Ver YouTube</button>" : "") +
-            (v.tiene_script ? "<button class='video-btn video-btn-script' onclick='verScript(`" + v.carpeta + "`,`" + v.tema.replace(/'/g,"") + "`)'>Script</button>" : "") +
-            "<button class='video-btn video-btn-reusar' onclick='reutilizar(`" + v.tema.replace(/'/g,"") + "`,`" + v.canal + "`)'>Reutilizar</button>" +
+            (v.tiene_script ? "<button class='video-btn video-btn-script' onclick='verScript(`" + v.carpeta + "`,`" + v.tema.replace(/`/g,"") + "`)'>Script</button>" : "") +
+            (!v.incompleto ? "<button class='video-btn video-btn-reusar' onclick='reutilizar(`" + v.tema.replace(/`/g,"") + "`,`" + v.canal + "`)'>Reutilizar</button>" : "") +
+            ((v.tiene_audio && v.tiene_imagenes) ? "<button class='video-btn video-btn-rehacer' onclick='rehacerVideo(`" + v.carpeta + "`,`" + (v.idioma_video||"") + "`,`" + v.tema.replace(/`/g,"") + "`)'>Rehacer video</button>" : "") +
           "</div>" +
         "</div>";
       grid.appendChild(card);
@@ -634,6 +660,38 @@ function reutilizar(tema, canalVideo) {
     canalBase = base;
     actualizarVoz();
   }
+}
+
+var rehacerCarpeta = null;
+var rehacerIdioma = null;
+
+function rehacerVideo(carpeta, idioma, tema) {
+  rehacerCarpeta = carpeta;
+  rehacerIdioma = idioma || null;
+  var info = tema + (idioma ? " [" + idioma.toUpperCase() + "]" : "");
+  document.getElementById("rehacer-info").textContent = info;
+  document.getElementById("modal-rehacer").style.display = "flex";
+}
+
+function cerrarModalRehacer() {
+  document.getElementById("modal-rehacer").style.display = "none";
+}
+
+function confirmarRehacer() {
+  var musica = document.getElementById("rehacer-musica").value;
+  cerrarModalRehacer();
+  document.getElementById("status-box").classList.add("visible");
+  document.getElementById("result-box").classList.remove("visible");
+  ocultarCheckpoints();
+  fetch("/rehacer_video", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({carpeta: rehacerCarpeta, idioma: rehacerIdioma, musica: musica})
+  }).then(function(r){ return r.json(); }).then(function(data){
+    if (data.error) { alert(data.error); return; }
+    mostrarPestana("generar");
+    polling = setInterval(checkStatus, 3000);
+  });
 }
 </script>
 </body>

@@ -3,70 +3,59 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 from moviepy.editor import (
-    ImageClip, AudioFileClip, concatenate_videoclips,
+    VideoClip, AudioFileClip, concatenate_videoclips,
     CompositeVideoClip
 )
 
-def aplicar_ken_burns(img_array, duracion, fps=24, efecto=None):
-    """Aplica efecto Ken Burns (zoom + paneo) a una imagen."""
+EFECTOS_KB = [
+    {"zoom_start": 1.0, "zoom_end": 1.15, "x": 0,     "y": 0},
+    {"zoom_start": 1.15, "zoom_end": 1.0, "x": 0,     "y": 0},
+    {"zoom_start": 1.0, "zoom_end": 1.12, "x": -0.05, "y": 0},
+    {"zoom_start": 1.0, "zoom_end": 1.12, "x": 0.05,  "y": 0},
+    {"zoom_start": 1.0, "zoom_end": 1.1,  "x": 0,     "y": -0.04},
+]
+
+def _make_frame_func(img_array, efecto, duracion):
+    """Devuelve una función make_frame que genera cada frame bajo demanda (sin pre-computar)."""
     h, w = img_array.shape[:2]
-    frames = int(duracion * fps)
-    
-    efectos = [
-        {"zoom_start": 1.0, "zoom_end": 1.15, "x": 0, "y": 0},      # Zoom in centro
-        {"zoom_start": 1.15, "zoom_end": 1.0, "x": 0, "y": 0},      # Zoom out centro
-        {"zoom_start": 1.0, "zoom_end": 1.12, "x": -0.05, "y": 0},  # Zoom + paneo derecha
-        {"zoom_start": 1.0, "zoom_end": 1.12, "x": 0.05, "y": 0},   # Zoom + paneo izquierda
-        {"zoom_start": 1.0, "zoom_end": 1.1,  "x": 0, "y": -0.04},  # Zoom + paneo arriba
-    ]
-    
-    if efecto is None:
-        efecto = efectos[np.random.randint(len(efectos))]
-    
-    result_frames = []
-    for i in range(frames):
-        t = i / max(frames - 1, 1)
-        zoom = efecto["zoom_start"] + (efecto["zoom_end"] - efecto["zoom_start"]) * t
-        
+
+    def make_frame(t):
+        progress = t / max(duracion - 1 / 24, 1e-6)
+        progress = min(progress, 1.0)
+        zoom = efecto["zoom_start"] + (efecto["zoom_end"] - efecto["zoom_start"]) * progress
+
         new_w = int(w / zoom)
         new_h = int(h / zoom)
-        
-        cx = w // 2 + int(efecto["x"] * w * t)
-        cy = h // 2 + int(efecto["y"] * h * t)
-        
+
+        cx = w // 2 + int(efecto["x"] * w * progress)
+        cy = h // 2 + int(efecto["y"] * h * progress)
+
         x1 = max(0, cx - new_w // 2)
         y1 = max(0, cy - new_h // 2)
         x2 = min(w, x1 + new_w)
         y2 = min(h, y1 + new_h)
-        
-        cropped = img_array[y1:y2, x1:x2]
-        img_pil = Image.fromarray(cropped).resize((w, h), Image.LANCZOS)
-        result_frames.append(np.array(img_pil))
-    
-    return result_frames
 
-def crear_clip_con_kenburns(img_path, duracion, fps=24):
-    """Crea un clip con efecto Ken Burns."""
+        cropped = img_array[y1:y2, x1:x2]
+        return np.array(Image.fromarray(cropped).resize((w, h), Image.LANCZOS))
+
+    return make_frame
+
+def crear_clip_con_kenburns(img_path, duracion, fps=15):
+    """Crea un clip con efecto Ken Burns generando frames bajo demanda (sin pre-cargar en RAM)."""
     img = Image.open(str(img_path)).convert("RGB")
     img = img.resize((1080, 1920), Image.LANCZOS)
     img_array = np.array(img)
-    
-    frames = aplicar_ken_burns(img_array, duracion, fps)
-    
-    def make_frame(t):
-        idx = min(int(t * fps), len(frames) - 1)
-        return frames[idx]
-    
-    clip = ImageClip(img_array).set_duration(duracion)
-    clip = clip.fl(lambda gf, t: frames[min(int(t * fps), len(frames) - 1)])
-    
-    return clip
+
+    efecto = EFECTOS_KB[np.random.randint(len(EFECTOS_KB))]
+    make_frame = _make_frame_func(img_array, efecto, duracion)
+
+    return VideoClip(make_frame, duration=duracion).set_fps(fps)
 
 def generar_video(
     audio_path,
     images_dir,
     output_path,
-    fps=24,
+    fps=15,
     transicion_duracion=0.5
 ):
     print("⏳ Cargando audio...")

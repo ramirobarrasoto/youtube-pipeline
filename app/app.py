@@ -423,6 +423,60 @@ def subir_imagenes():
     pipeline_status["checkpoint_data"]["imagenes"] = imagenes
     return jsonify({"ok": True, "info": " | ".join(info_msgs), "total": len(imagenes)})
 
+def run_rehacer(carpeta, idioma, genero_musica):
+    global pipeline_status
+    pipeline_status = {"running": True, "steps": [], "error": None, "video_url": None, "checkpoint": None, "checkpoint_data": {}}
+    try:
+        os.chdir(BASE_DIR)
+        base_path = os.path.join(BASE_DIR, "videos_output", carpeta)
+        images_dir = os.path.join(base_path, "images")
+
+        if idioma and os.path.exists(os.path.join(base_path, idioma, "narration.mp3")):
+            audio_path = os.path.join(base_path, idioma, "narration.mp3")
+            output_dir = os.path.join(base_path, idioma)
+        elif os.path.exists(os.path.join(base_path, "narration.mp3")):
+            audio_path = os.path.join(base_path, "narration.mp3")
+            output_dir = base_path
+        else:
+            pipeline_status["error"] = f"No se encontró audio en {carpeta}"
+            log_step("Error: No se encontró audio", "error")
+            return
+
+        log_step("Recompilando video con assets existentes...")
+        from pipeline_video import pipeline_video_completo
+        pipeline_video_completo(
+            audio_path=audio_path,
+            images_dir=images_dir,
+            output_dir=output_dir,
+            con_subtitulos=True,
+            genero_musica=genero_musica,
+        )
+        log_step("Video recompilado", "done")
+    except Exception as e:
+        logger.error(f"Error rehaciendo video: {e}", exc_info=True)
+        pipeline_status["error"] = str(e)
+        log_step(f"Error: {str(e)}", "error")
+    finally:
+        pipeline_status["running"] = False
+        pipeline_status["checkpoint"] = None
+
+
+@app.route("/rehacer_video", methods=["POST"])
+def rehacer_video():
+    if pipeline_status["running"] or pipeline_status["checkpoint"]:
+        return jsonify({"error": "Pipeline ya esta corriendo"}), 400
+    data = request.json
+    carpeta = data.get("carpeta", "")
+    idioma = data.get("idioma") or None
+    genero_musica = data.get("musica", "sin_musica")
+    thread = threading.Thread(target=run_rehacer, kwargs={
+        "carpeta": carpeta, "idioma": idioma, "genero_musica": genero_musica,
+    })
+    thread.daemon = True
+    thread.start()
+    return jsonify({"ok": True})
+
+
 @app.route("/biblioteca")
 def biblioteca():
     canal_filtro = request.args.get("canal", "todos")
@@ -435,16 +489,72 @@ def biblioteca():
         if not os.path.exists(canal_path):
             continue
         for video_dir in sorted(os.listdir(canal_path), reverse=True):
-            metadata_path = os.path.join(canal_path, video_dir, "metadata.json")
+            base = os.path.join(canal_path, video_dir)
+            if not os.path.isdir(base):
+                continue
+            images_path = os.path.join(base, "images")
+            cantidad_img = len([f for f in os.listdir(images_path) if f.endswith((".jpg", ".png", ".webp"))]) if os.path.exists(images_path) else 0
+            found = False
+
+            # Caso 1: metadata en raíz (un solo idioma)
+            metadata_path = os.path.join(base, "metadata.json")
             if os.path.exists(metadata_path):
                 with open(metadata_path) as f:
                     meta = json.load(f)
                 meta["carpeta"] = f"{canal_dir}/{video_dir}"
-                meta["tiene_script"] = os.path.exists(os.path.join(canal_path, video_dir, "script.txt"))
-                meta["tiene_thumbnail"] = os.path.exists(os.path.join(canal_path, video_dir, "thumbnail.jpg"))
-                images_path = os.path.join(canal_path, video_dir, "images")
-                meta["cantidad_imagenes"] = len([f for f in os.listdir(images_path) if f.endswith((".jpg",".png",".webp"))]) if os.path.exists(images_path) else 0
+                meta["idioma_video"] = None
+                meta["tiene_script"] = os.path.exists(os.path.join(base, "script.txt"))
+                meta["tiene_thumbnail"] = os.path.exists(os.path.join(base, "thumbnail.jpg"))
+                meta["cantidad_imagenes"] = cantidad_img
+                meta["tiene_audio"] = os.path.exists(os.path.join(base, "narration.mp3"))
+                meta["tiene_imagenes"] = cantidad_img > 0
+                meta["incompleto"] = False
                 videos.append(meta)
+                found = True
+
+            # Caso 2: metadata en subcarpeta de idioma (multi-idioma)
+            for idioma in ["es", "en", "pt"]:
+                sub = os.path.join(base, idioma)
+                meta_path = os.path.join(sub, "metadata.json")
+                if os.path.exists(meta_path):
+                    with open(meta_path) as f:
+                        meta = json.load(f)
+                    meta["carpeta"] = f"{canal_dir}/{video_dir}"
+                    meta["idioma_video"] = idioma
+                    meta["tiene_script"] = os.path.exists(os.path.join(sub, "script.txt"))
+                    meta["tiene_thumbnail"] = os.path.exists(os.path.join(base, "thumbnail.jpg"))
+                    meta["cantidad_imagenes"] = cantidad_img
+                    meta["tiene_audio"] = os.path.exists(os.path.join(sub, "narration.mp3"))
+                    meta["tiene_imagenes"] = cantidad_img > 0
+                    meta["incompleto"] = False
+                    videos.append(meta)
+                    found = True
+
+            # Caso 3: sin metadata pero con imágenes y audio (pipeline incompleto)
+            if not found and cantidad_img > 0:
+                audios = []
+                if os.path.exists(os.path.join(base, "narration.mp3")):
+                    audios.append(None)
+                for idioma in ["es", "en", "pt"]:
+                    if os.path.exists(os.path.join(base, idioma, "narration.mp3")):
+                        audios.append(idioma)
+                for idioma in audios:
+                    sub = os.path.join(base, idioma) if idioma else base
+                    videos.append({
+                        "tema": video_dir.replace("_", " "),
+                        "canal": canal_dir,
+                        "canal_nombre": canal_dir,
+                        "fecha": "",
+                        "duracion": "",
+                        "carpeta": f"{canal_dir}/{video_dir}",
+                        "idioma_video": idioma,
+                        "tiene_script": os.path.exists(os.path.join(sub, "script.txt")),
+                        "tiene_thumbnail": os.path.exists(os.path.join(base, "thumbnail.jpg")),
+                        "cantidad_imagenes": cantidad_img,
+                        "tiene_audio": True,
+                        "tiene_imagenes": True,
+                        "incompleto": True,
+                    })
     return jsonify(videos)
 
 @app.route("/biblioteca/script/<path:carpeta>")
