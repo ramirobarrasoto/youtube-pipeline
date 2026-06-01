@@ -278,15 +278,7 @@ def crear_clip_escena_ffmpeg(
 ) -> bool:
     """
     Crea un clip de video para una escena usando FFmpeg puro.
-
-    Aplica efecto Ken Burns (zoompan) sobre la imagen y sincroniza con el audio.
-    Mucho más rápido que MoviePy para procesar 100+ clips.
-
-    Efectos disponibles:
-        zoom_in  — zoom suave hacia adentro (más dramático)
-        zoom_out — zoom suave hacia afuera
-        pan_left — paneo hacia la izquierda con zoom
-        pan_right— paneo hacia la derecha con zoom
+    Intenta Ken Burns (zoompan) primero; si falla, usa clip estático como fallback.
     """
     if not os.path.exists(imagen_path):
         return False
@@ -303,9 +295,9 @@ def crear_clip_escena_ffmpeg(
         "pan_left":  f"zoompan=z='min(zoom+0.0006,1.2)':d={frames}:x='min(iw-iw/zoom,x+1)':y='ih/2-(ih/zoom/2)'",
         "pan_right": f"zoompan=z='min(zoom+0.0006,1.2)':d={frames}:x='max(0,x-1)':y='ih/2-(ih/zoom/2)'",
     }
-
     zoompan = efectos_zoompan.get(efecto, efectos_zoompan["zoom_in"])
 
+    # Intentar con Ken Burns + libx264 explícito (sin x265)
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-t", str(dur), "-i", imagen_path,
@@ -313,15 +305,33 @@ def crear_clip_escena_ffmpeg(
         "-vf", f"scale=8000:-1,{zoompan},scale=1080:1920",
         "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-x264-params", "no-scenecut=1",
         "-r", str(FPS),
         "-c:a", "aac", "-b:a", "128k",
         "-shortest",
         output_path,
     ]
-
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    if result.returncode != 0:
-        print(f"    ⚠️  FFmpeg error escena: {result.stderr[-200:]}")
+    if result.returncode == 0:
+        return True
+
+    # Fallback: clip estático sin zoompan (si x265/zoompan falla)
+    print(f"    ⚠️  Ken Burns falló, usando clip estático para esta escena...")
+    cmd_simple = [
+        "ffmpeg", "-y",
+        "-loop", "1", "-t", str(dur), "-i", imagen_path,
+        "-i", audio_path,
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
+        "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-r", str(FPS),
+        "-c:a", "aac", "-b:a", "128k",
+        "-shortest",
+        output_path,
+    ]
+    result2 = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=120)
+    if result2.returncode != 0:
+        print(f"    ❌  FFmpeg error: {result2.stderr[-300:]}")
         return False
     return True
 
