@@ -87,7 +87,20 @@
   .tab-idioma.activo { border-bottom-color: #E87830; color: #E87830; }
   .tab-panel { display: none; }
   .tab-panel.activo { display: block; }
-  .voz-display { background: #111; border: 1px solid #2a4a2a; border-radius: 8px; padding: 8px 12px; font-size: 13px; color: #4caf50; min-height: 38px; display: flex; flex-direction: column; gap: 4px; }
+  .modo-toggle { display: flex; background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 4px; gap: 4px; margin-bottom: 1.5rem; }
+  .modo-btn { flex: 1; padding: 9px 12px; border-radius: 7px; border: none; font-size: 13px; font-weight: 500; cursor: pointer; background: none; color: #666; transition: all 0.2s; }
+  .modo-btn.activo-clasico { background: #E87830; color: #fff; }
+  .modo-btn.activo-v2 { background: #7c3aed; color: #fff; }
+  .badge-v2 { display: inline-block; background: rgba(124,58,237,0.2); color: #a78bfa; border: 1px solid rgba(124,58,237,0.4); border-radius: 6px; font-size: 10px; font-weight: 600; padding: 2px 7px; margin-left: 8px; vertical-align: middle; }
+  .btn-generate-v2 { width: 100%; padding: 14px; font-size: 15px; border-radius: 8px; background: #7c3aed; color: #fff; border: none; cursor: pointer; margin-top: 1rem; }
+  .btn-generate-v2:hover { background: #6d28d9; }
+  .btn-generate-v2:disabled { background: #444; cursor: not-allowed; }
+  .info-v2 { background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.25); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #a78bfa; line-height: 1.6; margin-bottom: 1rem; }
+  .status-box-v2 { margin-top: 1.5rem; background: #130d1f; border: 1px solid #3b1f6e; border-radius: 10px; padding: 1.25rem; display: none; }
+  .status-box-v2.visible { display: block; }
+  .v2-header { font-size: 11px; font-weight: 600; color: #7c3aed; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.75rem; }
+  .result-box-v2 { margin-top: 1rem; background: #0d0d1f; border: 1px solid #2a2a6a; border-radius: 10px; padding: 1.25rem; display: none; }
+  .result-box-v2.visible { display: block; }
 </style>
 </head>
 <body>
@@ -99,6 +112,12 @@
   </div>
 
   <div id="panel-generar">
+
+    <div class="modo-toggle">
+      <button class="modo-btn activo-clasico" id="modo-btn-clasico" onclick="setModo('clasico')">&#9881; Clasico</button>
+      <button class="modo-btn" id="modo-btn-v2" onclick="setModo('v2')">&#9889; Experimental V2 <span class="badge-v2">Gemini</span></button>
+    </div>
+
     <div class="section">
       <div class="section-label">Canal de destino</div>
       <div class="canal-grid">
@@ -193,7 +212,16 @@
       </div>
     </div>
 
-    <button class="btn-generate" id="btn-gen" onclick="generarVideo()">Generar video</button>
+    <!-- Info V2 (solo visible en modo experimental) -->
+    <div class="info-v2" id="info-v2" style="display:none">
+      &#9889; <strong>Modo Experimental V2 con Gemini</strong><br>
+      Genera el guion dividido en escenas de 5 segundos con JSON estructurado.
+      Una imagen por escena, audio en paralelo, ensamble con FFmpeg.<br>
+      <strong>Sin checkpoints</strong> — el pipeline corre automaticamente hasta el video final.
+    </div>
+
+    <button class="btn-generate" id="btn-gen-visible" onclick="generarVideo()">Generar video</button>
+    <button class="btn-generate-v2" id="btn-gen-v2" onclick="generarVideoV2()" style="display:none">&#9889; Generar con Gemini (V2)</button>
 
     <div class="status-box" id="status-box"><div id="steps-container"></div></div>
 
@@ -279,6 +307,17 @@
   <div class="result-box" id="result-box">
       &#127881; Video listo: <a id="video-link" href="#" target="_blank">Ver en YouTube</a>
     </div>
+
+    <!-- Estado y resultado del pipeline V2 -->
+    <div class="status-box-v2" id="status-box-v2">
+      <div class="v2-header">&#9889; Pipeline Experimental V2 — Gemini</div>
+      <div id="steps-container-v2"></div>
+    </div>
+    <div class="result-box-v2" id="result-box-v2">
+      &#127881; Video V2 generado exitosamente.<br>
+      <span style="font-size:12px;color:#888">Ubicacion: </span><span id="video-path-v2" style="font-size:12px;color:#a78bfa;word-break:break-all"></span>
+    </div>
+
   </div>
 
   <div id="panel-biblioteca" style="display:none">
@@ -310,7 +349,92 @@ var canalBase = "futbol";
 var idioma = "es";
 var todosIdiomas = false;
 var polling = null;
+var pollingV2 = null;
 var checkpointActual = null;
+var modoActual = "clasico";
+
+function setModo(modo) {
+  modoActual = modo;
+  var esV2 = modo === "v2";
+  document.getElementById("modo-btn-clasico").className = "modo-btn" + (!esV2 ? " activo-clasico" : "");
+  document.getElementById("modo-btn-v2").className = "modo-btn" + (esV2 ? " activo-v2" : "");
+  document.getElementById("info-v2").style.display = esV2 ? "block" : "none";
+  document.getElementById("btn-gen-visible").style.display = esV2 ? "none" : "block";
+  document.getElementById("btn-gen-v2").style.display = esV2 ? "block" : "none";
+  // En V2 forzar duracion largo
+  if (esV2) {
+    document.getElementById("duracion").value = "largo";
+  }
+}
+
+function generarVideoV2() {
+  var tema = document.getElementById("tema").value.trim();
+  if (!tema) { alert("Ingresa el tema"); return; }
+  var btn = document.getElementById("btn-gen-v2");
+  btn.disabled = true;
+  btn.textContent = "Generando con Gemini...";
+  document.getElementById("status-box-v2").classList.add("visible");
+  document.getElementById("result-box-v2").classList.remove("visible");
+  document.getElementById("steps-container-v2").innerHTML = "";
+
+  var canal = canalBase + "_" + idioma;
+  var voz = document.getElementById("voz").value;
+  var duracion = document.getElementById("duracion").value;
+  var musica = document.getElementById("musica").value;
+  var idiomaTexto = {es:"español", en:"english", pt:"português"}[idioma] || "español";
+
+  fetch("/api/v2/generar", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      canal: canal,
+      tema: tema,
+      duracion: duracion,
+      voz: voz,
+      musica: musica,
+      idioma: idiomaTexto,
+      privacidad: document.getElementById("privacidad").value,
+    })
+  }).then(function(r){ return r.json(); }).then(function(data){
+    if (data.error) {
+      alert("Error: " + data.error);
+      btn.disabled = false;
+      btn.textContent = "⚡ Generar con Gemini (V2)";
+      return;
+    }
+    pollingV2 = setInterval(checkStatusV2, 4000);
+  });
+}
+
+function checkStatusV2() {
+  fetch("/api/v2/status").then(function(r){ return r.json(); }).then(function(data){
+    var c = document.getElementById("steps-container-v2");
+    c.innerHTML = "";
+    var icons = {done:"V", active:"...", error:"X", checkpoint:"||"};
+    (data.steps || []).forEach(function(s){
+      var d = document.createElement("div");
+      d.className = "status-step step-" + s.estado;
+      d.innerHTML = "<span>" + (icons[s.estado]||"o") + "</span><span>" + s.mensaje + "</span>";
+      c.appendChild(d);
+    });
+    if (!data.running) {
+      clearInterval(pollingV2);
+      var btn = document.getElementById("btn-gen-v2");
+      btn.disabled = false;
+      btn.textContent = "⚡ Generar con Gemini (V2)";
+      if (data.video_path) {
+        document.getElementById("result-box-v2").classList.add("visible");
+        document.getElementById("video-path-v2").textContent = data.video_path;
+      }
+      if (data.error) {
+        var err = document.createElement("div");
+        err.className = "status-step step-error";
+        err.textContent = "Error: " + data.error;
+        c.appendChild(err);
+      }
+    }
+  });
+}
 
 var VOCES = {
   futbol:     { es: "es-MX-JorgeNeural",    en: "en-US-GuyNeural",      pt: "pt-BR-AntonioNeural"   },
@@ -437,8 +561,8 @@ function toggleTodosIdiomas(cb) {
 function generarVideo() {
   var tema = document.getElementById("tema").value.trim();
   if (!tema) { alert("Ingresa el tema"); return; }
-  document.getElementById("btn-gen").disabled = true;
-  document.getElementById("btn-gen").textContent = "Generando...";
+  document.getElementById("btn-gen-visible").disabled = true;
+  document.getElementById("btn-gen-visible").textContent = "Generando...";
   document.getElementById("status-box").classList.add("visible");
   document.getElementById("result-box").classList.remove("visible");
   ocultarCheckpoints();
@@ -566,8 +690,8 @@ function checkStatus() {
     else if (data.checkpoint === "imagenes") mostrarImagenes(data.checkpoint_data);
     if (!data.running && !data.checkpoint) {
       clearInterval(polling);
-      document.getElementById("btn-gen").disabled = false;
-      document.getElementById("btn-gen").textContent = "Generar video";
+      document.getElementById("btn-gen-visible").disabled = false;
+      document.getElementById("btn-gen-visible").textContent = "Generar video";
       if (data.video_url) {
         document.getElementById("result-box").classList.add("visible");
         document.getElementById("video-link").href = data.video_url;
