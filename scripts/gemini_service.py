@@ -127,36 +127,49 @@ def generar_guion_estructurado(
             print(f"  Gemini guión — intento {intento + 1}/{intentos} "
                   f"(~{num_escenas} escenas, modelo: {GEMINI_MODEL})...")
 
+            # Usamos solo response_mime_type sin response_schema
+            # El prompt ya instruye la estructura exacta — más compatible entre modelos
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=_SCHEMA_ESCENAS,
                     temperature=0.7,
                     max_output_tokens=65536,
                 ),
             )
 
-            escenas = json.loads(response.text)
-
-            if not isinstance(escenas, list) or len(escenas) == 0:
-                print("  Respuesta vacía o inválida, reintentando...")
+            texto = response.text
+            if not texto or not texto.strip():
+                print("  Respuesta vacía, reintentando...")
                 time.sleep(5)
                 continue
 
-            # Verificar campos mínimos
+            escenas = json.loads(texto)
+
+            if not isinstance(escenas, list) or len(escenas) == 0:
+                print("  Respuesta no es un array válido, reintentando...")
+                time.sleep(5)
+                continue
+
             escenas = [
                 e for e in escenas
                 if e.get("texto_narracion") and e.get("prompt_visual_ia")
             ]
+
+            if not escenas:
+                print("  Escenas sin campos requeridos, reintentando...")
+                time.sleep(5)
+                continue
 
             print(f"  ✅ Guión generado: {len(escenas)} escenas "
                   f"(~{len(escenas) * SEGS_POR_ESCENA // 60} min {len(escenas) * SEGS_POR_ESCENA % 60}s)")
             return escenas
 
         except Exception as exc:
-            print(f"  Error Gemini: {exc}")
+            import traceback
+            print(f"  Error Gemini (intento {intento+1}): {exc}")
+            print(f"  Detalle: {traceback.format_exc()[-500:]}")
             if intento < intentos - 1:
                 print("  Reintentando en 10 segundos...")
                 time.sleep(10)
