@@ -241,17 +241,40 @@ def _generar_imagen_gemini(prompt: str, output_path: str, reintentos: int = 3) -
     return False
 
 
+def _generar_imagen_pollinations(prompt: str, output_path: str) -> bool:
+    """Fallback gratuito: genera imagen via Pollinations.ai con el mismo prompt."""
+    import urllib.parse
+    import urllib.request
+    from PIL import Image
+    from io import BytesIO
+
+    try:
+        prompt_enc = urllib.parse.quote(prompt[:500])
+        url = f"https://image.pollinations.ai/prompt/{prompt_enc}?width=1080&height=1920&model=flux&nologo=true"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+        img = Image.open(BytesIO(data)).convert("RGB")
+        img = _ajustar_a_1080x1920(img)
+        img.save(output_path, "JPEG", quality=90)
+        return True
+    except Exception as exc:
+        print(f"    ⚠️  Pollinations fallback falló: {str(exc)[:80]}")
+        return False
+
+
 def generar_imagenes_escenas(
     escenas: list[dict],
     images_dir: str,
     estilo: str = "cinematic 4K dramatic",
-    max_workers: int = 2,
+    max_workers: int = 1,
 ) -> dict[int, str]:
     """
     Genera imágenes para todas las escenas usando Gemini / Imagen 3.
     Usa el prompt_visual_ia exacto de cada escena — sin Wikimedia ni Pollinations.
 
-    max_workers=2 por defecto para respetar los rate limits de la API de imágenes.
+    max_workers=1 por defecto (secuencial) para respetar el rate limit de Imagen 3.
+    Fallback automático a Pollinations.ai si Imagen 3 falla.
     Saltea escenas que ya tienen imagen guardada (permite reanudar si se interrumpe).
     """
     from PIL import Image as PILImage
@@ -272,13 +295,18 @@ def generar_imagenes_escenas(
         if _generar_imagen_gemini(prompt, path):
             return num, path
 
-        # Fallback: imagen negra con número de escena (nunca bloquea el pipeline)
+        # Fallback: Pollinations.ai — genera imagen con IA, gratis, sin rate limit
+        if _generar_imagen_pollinations(prompt, path):
+            print(f"    ✅  Escena {num}: imagen via Pollinations.ai")
+            return num, path
+
+        # Último recurso: imagen negra
         PILImage.new("RGB", (1080, 1920), (15, 15, 15)).save(path, "JPEG", quality=90)
         print(f"    ⚠️  Escena {num}: fallback imagen negra")
         return num, path
 
-    print(f"  🎨  Generando {total} imágenes con Gemini/Imagen 3 (workers: {max_workers})...")
-    print(f"  ℹ️  Rate limit: ~10 imágenes/min — estimado {total // 10 + 1} min")
+    print(f"  🎨  Generando {total} imágenes (Imagen 3 → Pollinations fallback, workers: {max_workers})...")
+    print(f"  ℹ️  Rate limit Imagen 3: ~10 img/min — estimado {total // 10 + 1} min (secuencial)")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_procesar, e): e["numero_escena"] for e in escenas}
         completados = 0
@@ -702,9 +730,9 @@ def pipeline_experimental(
     audios = generar_audios_paralelo(escenas, voz=voz, audio_dir=audio_dir, max_workers=4)
     log(f"Audios listos: {len(audios)}/{len(escenas)} escenas", "done")
 
-    # ── PASO 3: Imágenes por escena en paralelo ───────────────────────────
+    # ── PASO 3: Imágenes por escena (secuencial para respetar rate limits) ──
     log(f"Generando {len(escenas)} imágenes con prompt_visual_ia...")
-    imagenes = generar_imagenes_escenas(escenas, images_dir=images_dir, estilo=estilo_imagenes, max_workers=3)
+    imagenes = generar_imagenes_escenas(escenas, images_dir=images_dir, estilo=estilo_imagenes, max_workers=1)
     log(f"Imágenes listas: {len(imagenes)}/{len(escenas)} escenas", "done")
 
     # ── PASO 4: Clips FFmpeg con Ken Burns ────────────────────────────────
