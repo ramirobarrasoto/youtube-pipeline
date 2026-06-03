@@ -25,7 +25,9 @@ from dotenv import load_dotenv
 load_dotenv("config/.env")
 
 # Frames por segundo para el video final
-FPS = 24
+FPS = 30
+CROSSFADE_DUR = 1.0   # segundos de disolvencia entre escenas
+BITRATE_VIDEO = "5M"  # bitrate objetivo para YouTube (evita pixelación)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -324,6 +326,23 @@ def _get_audio_duration(audio_path: str) -> float:
         return 5.0
 
 
+def _get_clip_duration(video_path: str) -> float:
+    """Obtiene la duración de un clip de video con ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", video_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = json.loads(result.stdout)
+        dur = float(data.get("format", {}).get("duration", 0))
+        if dur > 0:
+            return dur
+    except Exception:
+        pass
+    return 5.0
+
+
 def crear_clip_escena_ffmpeg(
     imagen_path: str,
     audio_path: str,
@@ -332,8 +351,14 @@ def crear_clip_escena_ffmpeg(
     efecto: str = "zoom_in",
 ) -> bool:
     """
-    Crea un clip de video para una escena usando FFmpeg puro.
-    Intenta Ken Burns (zoompan) primero; si falla, usa clip estático como fallback.
+    Crea un clip Ken Burns suavizado para una escena.
+
+    Mejoras vs versión anterior:
+    - Usa `on` (número de frame lineal) en lugar de `zoom` acumulativo → sin flickering
+    - Pre-escala a 2160×3840 (2x) para dar margen al zoompan sin artefactos
+    - zoompan con `:s=1080x1920` define el output directamente
+    - 30 FPS, libx264 high profile, 5M bitrate (calidad YouTube)
+    - 5 efectos con ciclo variado para evitar monotonía visual
     """
     if not os.path.exists(imagen_path):
         return False
@@ -344,25 +369,29 @@ def crear_clip_escena_ffmpeg(
 
     frames = int(dur * FPS)
 
+    # Fórmulas lineales basadas en `on` (frame actual) → zoom suave sin saltos
     efectos_zoompan = {
-        "zoom_in":   f"zoompan=z='min(zoom+0.0008,1.3)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
-        "zoom_out":  f"zoompan=z='if(eq(on,1),1.3,max(1.0,zoom-0.0008))':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
-        "pan_left":  f"zoompan=z='min(zoom+0.0006,1.2)':d={frames}:x='min(iw-iw/zoom,x+1)':y='ih/2-(ih/zoom/2)'",
-        "pan_right": f"zoompan=z='min(zoom+0.0006,1.2)':d={frames}:x='max(0,x-1)':y='ih/2-(ih/zoom/2)'",
+        "zoom_in":     f"zoompan=z='1+0.0005*on':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920",
+        "zoom_out":    f"zoompan=z='max(1,1.1-0.0005*on)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920",
+        "pan_left":    f"zoompan=z='1+0.0003*on':d={frames}:x='max(0,iw/2-(iw/zoom/2)-on*0.6)':y='ih/2-(ih/zoom/2)':s=1080x1920",
+        "pan_right":   f"zoompan=z='1+0.0003*on':d={frames}:x='min(iw-iw/zoom,iw/2-(iw/zoom/2)+on*0.6)':y='ih/2-(ih/zoom/2)':s=1080x1920",
+        "zoom_in_up":  f"zoompan=z='1+0.0004*on':d={frames}:x='iw/2-(iw/zoom/2)':y='max(0,ih/2-(ih/zoom/2)-on*0.3)':s=1080x1920",
     }
     zoompan = efectos_zoompan.get(efecto, efectos_zoompan["zoom_in"])
 
-    # Intentar con Ken Burns + libx264 explícito (sin x265)
+    # Pre-escala a 2x el target para que zoompan tenga margen de movimiento real
+    vf = f"scale=2160:3840:flags=lanczos,{zoompan}"
+
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-t", str(dur), "-i", imagen_path,
         "-i", audio_path,
-        "-vf", f"scale=8000:-1,{zoompan},scale=1080:1920",
+        "-vf", vf,
         "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-x264-params", "no-scenecut=1",
+        "-c:v", "libx264", "-profile:v", "high", "-b:v", BITRATE_VIDEO,
+        "-x264-params", "no-scenecut=1:keyint=30",
         "-r", str(FPS),
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "192k",
         "-shortest",
         output_path,
     ]
@@ -370,24 +399,179 @@ def crear_clip_escena_ffmpeg(
     if result.returncode == 0:
         return True
 
-    # Fallback: clip estático sin zoompan (si x265/zoompan falla)
-    print(f"    ⚠️  Ken Burns falló, usando clip estático para esta escena...")
-    cmd_simple = [
+    # Fallback: clip estático limpio si zoompan falla (ej. x265 roto en Mac)
+    print(f"    ⚠️  Ken Burns falló ({result.stderr[-120:].strip()}), usando clip estático...")
+    cmd_static = [
         "ffmpeg", "-y",
         "-loop", "1", "-t", str(dur), "-i", imagen_path,
         "-i", audio_path,
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
+               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
         "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-c:v", "libx264", "-profile:v", "high", "-b:v", BITRATE_VIDEO,
         "-r", str(FPS),
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "192k",
         "-shortest",
         output_path,
     ]
-    result2 = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=120)
+    result2 = subprocess.run(cmd_static, capture_output=True, text=True, timeout=120)
     if result2.returncode != 0:
-        print(f"    ❌  FFmpeg error: {result2.stderr[-300:]}")
+        print(f"    ❌  FFmpeg estático error: {result2.stderr[-200:]}")
         return False
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ensamble con crossfade (xfade + acrossfade)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _xfade_batch(
+    clips: list[str],
+    output_path: str,
+    crossfade_dur: float = CROSSFADE_DUR,
+) -> bool:
+    """
+    Aplica disolvencia cruzada (xfade + acrossfade) a un lote de clips.
+
+    Calcula los offsets dinámicamente: offset_i = Σ dur[0..i-1] - i * crossfade_dur
+    Máximo recomendado: 12-15 clips por llamada para no saturar filter_complex.
+    """
+    if len(clips) == 1:
+        shutil.copy2(clips[0], output_path)
+        return True
+
+    duraciones = [_get_clip_duration(c) for c in clips]
+    # Reducir crossfade si algún clip es muy corto
+    cf = min(crossfade_dur, min(duraciones) / 2 - 0.05)
+    cf = max(cf, 0.1)
+
+    inputs = []
+    for c in clips:
+        inputs += ["-i", c]
+
+    filtros_v, filtros_a = [], []
+    label_v, label_a = "[0:v]", "[0:a]"
+    offset_acum = 0.0
+
+    for i in range(1, len(clips)):
+        offset_acum += duraciones[i - 1] - cf
+        out_v, out_a = f"[v{i}]", f"[a{i}]"
+        filtros_v.append(
+            f"{label_v}[{i}:v]xfade=transition=fade:duration={cf:.3f}:offset={offset_acum:.3f}{out_v}"
+        )
+        filtros_a.append(
+            f"{label_a}[{i}:a]acrossfade=d={cf:.3f}{out_a}"
+        )
+        label_v, label_a = out_v, out_a
+
+    filter_complex = ";".join(filtros_v + filtros_a)
+
+    cmd = (
+        ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_complex,
+            "-map", label_v, "-map", label_a,
+            "-c:v", "libx264", "-profile:v", "high", "-b:v", BITRATE_VIDEO,
+            "-pix_fmt", "yuv420p",
+            "-r", str(FPS),
+            "-c:a", "aac", "-b:a", "192k",
+            output_path,
+        ]
+    )
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    if result.returncode != 0:
+        print(f"    ❌  xfade batch error: {result.stderr[-400:]}")
+        return False
+    return True
+
+
+def ensamblar_con_crossfade(
+    clips_paths: list[str],
+    output_path: str,
+    temp_dir: str,
+    crossfade_dur: float = CROSSFADE_DUR,
+    batch_size: int = 12,
+) -> bool:
+    """
+    Ensambla todos los clips con transiciones de disolvencia cruzada.
+
+    Para 100+ clips usa procesamiento por lotes (batch_size clips c/u con xfade),
+    luego concatena los lotes. Los lotes internos tienen crossfade suave;
+    entre lotes hay un corte limpio — invisible en la práctica porque cada lote
+    es largo (batch_size × duración_escena).
+
+    Fallback automático a concat sin crossfade si xfade falla.
+    """
+    total = len(clips_paths)
+    print(f"\n  🎬  Ensamblando {total} clips con crossfade ({crossfade_dur}s)...")
+
+    if total == 0:
+        return False
+    if total == 1:
+        shutil.copy2(clips_paths[0], output_path)
+        return True
+
+    lotes = [clips_paths[i:i + batch_size] for i in range(0, total, batch_size)]
+    print(f"  ℹ️   {len(lotes)} lote(s) de hasta {batch_size} clips c/u")
+
+    if len(lotes) == 1:
+        ok = _xfade_batch(lotes[0], output_path, crossfade_dur)
+        if not ok:
+            print("  ⚠️  xfade falló, usando concat directo como fallback...")
+            return ensamblar_clips_ffmpeg(clips_paths, output_path, temp_dir)
+        print(f"  ✅  Video ensamblado con crossfade: {os.path.basename(output_path)}")
+        return True
+
+    # Multi-lote: xfade dentro de cada lote, concat entre lotes
+    lote_paths = []
+    for i, lote in enumerate(lotes):
+        lote_out = os.path.join(temp_dir, f"_lote_{i:03d}.mp4")
+        print(f"    Lote {i + 1}/{len(lotes)} ({len(lote)} clips)...", end=" ", flush=True)
+        if _xfade_batch(lote, lote_out, crossfade_dur):
+            lote_paths.append(lote_out)
+            print("✓")
+        else:
+            # Fallback: concat este lote sin xfade
+            print("⚠️  fallback concat")
+            filelist = os.path.join(temp_dir, f"_lote_{i:03d}_list.txt")
+            with open(filelist, "w") as f:
+                for c in lote:
+                    f.write(f"file '{os.path.abspath(c)}'\n")
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", filelist, "-c", "copy", lote_out],
+                capture_output=True, timeout=600,
+            )
+            if r.returncode == 0:
+                lote_paths.append(lote_out)
+
+    if not lote_paths:
+        return False
+
+    # Concat final de los lotes
+    print(f"    Concatenando {len(lote_paths)} lotes en video maestro...")
+    filelist_final = os.path.join(temp_dir, "_lotes_final.txt")
+    with open(filelist_final, "w") as f:
+        for p in lote_paths:
+            f.write(f"file '{os.path.abspath(p)}'\n")
+
+    cmd_final = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", filelist_final, "-c", "copy", output_path,
+    ]
+    result = subprocess.run(cmd_final, capture_output=True, text=True, timeout=600)
+
+    # Limpiar lotes temporales
+    for p in lote_paths:
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+
+    if result.returncode != 0:
+        print(f"  ❌  Concat final error: {result.stderr[-400:]}")
+        return False
+
+    print(f"  ✅  Video maestro listo: {os.path.basename(output_path)}")
     return True
 
 
@@ -396,27 +580,19 @@ def ensamblar_clips_ffmpeg(
     output_path: str,
     temp_dir: str,
 ) -> bool:
-    """
-    Concatena todos los clips de escena en el video final usando FFmpeg concat.
-    """
+    """Concat directo sin transiciones (fallback rápido)."""
     filelist_path = os.path.join(temp_dir, "filelist.txt")
     with open(filelist_path, "w") as f:
         for clip_path in clips_paths:
-            # FFmpeg concat demuxer requiere rutas absolutas
-            abs_path = os.path.abspath(clip_path)
-            f.write(f"file '{abs_path}'\n")
-
+            f.write(f"file '{os.path.abspath(clip_path)}'\n")
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", filelist_path,
-        "-c", "copy",
-        output_path,
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", filelist_path, "-c", "copy", output_path,
     ]
-
-    print(f"  🎬  Ensamblando {len(clips_paths)} clips → {os.path.basename(output_path)}...")
+    print(f"  🎬  Concat directo: {len(clips_paths)} clips → {os.path.basename(output_path)}...")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
-        print(f"  ❌  FFmpeg concat error: {result.stderr[-500:]}")
+        print(f"  ❌  FFmpeg concat error: {result.stderr[-400:]}")
         return False
     return True
 
@@ -435,7 +611,7 @@ def crear_clips_paralelo(
         Lista ordenada de rutas a los clips generados.
     """
     os.makedirs(clips_dir, exist_ok=True)
-    efectos_ciclo = ["zoom_in", "zoom_out", "pan_left", "pan_right"]
+    efectos_ciclo = ["zoom_in", "zoom_out", "pan_left", "pan_right", "zoom_in_up"]
     clips_ordenados: dict[int, str] = {}
     total = len(escenas)
 
@@ -539,12 +715,21 @@ def pipeline_experimental(
     if not clips:
         raise Exception("No se pudieron generar clips de video")
 
-    # ── PASO 5: Ensamble final ────────────────────────────────────────────
+    # ── PASO 5: Ensamble con crossfade ────────────────────────────────────
     video_final = os.path.join(base_dir, "video_final.mp4")
-    log("Ensamblando video final con FFmpeg...")
-    if not ensamblar_clips_ffmpeg(clips, video_final, temp_dir=base_dir):
+    log(f"Ensamblando {len(clips)} clips con crossfade ({CROSSFADE_DUR}s)...")
+    ok = ensamblar_con_crossfade(
+        clips,
+        video_final,
+        temp_dir=base_dir,
+        crossfade_dur=CROSSFADE_DUR,
+    )
+    if not ok:
         raise Exception("Error al ensamblar el video final")
-    log("Video final ensamblado", "done")
+    log("Video maestro ensamblado", "done")
+
+    # Nota: los clips individuales NO se borran para facilitar debugging.
+    # Están en base_dir/clips/ para inspeccionarlos si hace falta.
 
     # ── PASO 6: Música de fondo (opcional) ───────────────────────────────
     if genero_musica and genero_musica != "sin_musica":
