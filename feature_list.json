@@ -1,0 +1,133 @@
+{
+  "project": "youtube-pipeline",
+  "description": "Pipeline Maestro YouTube: videos verticales para 9 perfiles de canal (3 temáticas x es/en/pt).",
+  "rules": {
+    "one_feature_at_a_time": true,
+    "require_tests_to_close": true,
+    "require_approved_spec_to_implement": true,
+    "valid_status": ["pending", "spec_ready", "in_progress", "done", "blocked"],
+    "sdd_required_when": "la feature tiene \"sdd\": true"
+  },
+  "features": [
+    {
+      "id": 1,
+      "name": "requirements_baseline",
+      "title": "Declarar en requirements.txt las dependencias que el código usa",
+      "description": "El código importa flask, edge_tts, faster_whisper y numpy, que no figuran en requirements.txt. Añadirlas sin eliminar nada.",
+      "acceptance": [
+        "requirements.txt incluye flask, edge-tts, faster-whisper y numpy",
+        "No se elimina ninguna línea existente de requirements.txt",
+        "Ningún otro archivo cambia"
+      ],
+      "sdd": false,
+      "riesgo": "bajo",
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "name": "director_ia",
+      "title": "Director IA: plan de escenas con un prompt de imagen por fragmento del guion",
+      "description": "Dividir el guion aprobado en escenas y pedir al LLM un prompt de imagen por escena; generar_imagenes puede usarlos. Ver specs/director_ia/.",
+      "acceptance": [
+        "Existe scripts/director.py con generar_plan, guardar_plan y preparar_plan",
+        "generar_imagenes acepta prompts opcionales y sin ellos se comporta como antes",
+        "run_pipeline guarda plan.json y usa sus prompts",
+        "tests/ cubre todos los requisitos no manuales"
+      ],
+      "sdd": true,
+      "riesgo": "medio",
+      "status": "spec_ready"
+    },
+    {
+      "id": 3,
+      "name": "voces_por_idioma",
+      "title": "Usar la voz_default de cada perfil",
+      "description": "Hoy las voces en/pt no están en VOCES y caen a la voz en español 'Carlos'.",
+      "acceptance": [
+        "generar_audio acepta el identificador de voz Neural del perfil",
+        "Un perfil en o pt produce audio con su voz y no con la voz en español",
+        "tests/ cubre la selección de voz sin llamar a edge-tts"
+      ],
+      "sdd": true,
+      "riesgo": "bajo",
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "name": "sincronia_escenas",
+      "title": "Duración de cada imagen proporcional al texto de su escena",
+      "description": "Continúa director_ia: usar plan.json para repartir el tiempo del audio entre las imágenes.",
+      "acceptance": [
+        "La duración de cada imagen depende del texto de su escena",
+        "La suma de duraciones iguala la del audio"
+      ],
+      "sdd": true,
+      "riesgo": "medio",
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "name": "subtitulos_por_idioma",
+      "title": "Subtítulos en el idioma del perfil y sin depender de fuentes de macOS",
+      "description": "Whisper usa language='es' fijo y las fuentes son solo de macOS.",
+      "acceptance": [
+        "El idioma de Whisper sale del perfil",
+        "Si no hay fuentes de macOS se usa una alternativa"
+      ],
+      "sdd": true,
+      "riesgo": "medio",
+      "status": "pending"
+    },
+    {
+      "id": 6,
+      "name": "thumbnail_por_perfil",
+      "title": "Miniatura con el estilo del perfil",
+      "description": "El prompt de miniatura dice 'vintage soccer' para todos los canales.",
+      "acceptance": [
+        "El prompt usa estilo_imagenes del perfil",
+        "Ningún perfil que no sea de fútbol recibe 'soccer'"
+      ],
+      "sdd": true,
+      "riesgo": "bajo",
+      "status": "pending"
+    },
+    {
+      "id": 7,
+      "name": "youtube_por_perfil",
+      "title": "Token y tags de YouTube por perfil",
+      "description": "subir_youtube usa un token y tags fijos; los campos youtube_token y tags de cada perfil no se usan. Publica en canales: riesgo alto.",
+      "acceptance": [
+        "Se usa el youtube_token del perfil",
+        "Se usan los tags del perfil"
+      ],
+      "sdd": true,
+      "riesgo": "alto",
+      "status": "pending"
+    },
+    {
+      "id": 8,
+      "name": "director_fuentes_reales",
+      "title": "Wikimedia Commons / Pexels como alternativa a imágenes generadas",
+      "description": "Propuesto antes, no implementado. Depende de director_ia.",
+      "acceptance": [
+        "Por definir en su spec"
+      ],
+      "sdd": true,
+      "riesgo": "alto",
+      "status": "pending"
+    },
+    {
+      "id": 9,
+      "name": "limpieza_dependencias",
+      "title": "Retirar anthropic y elevenlabs de requirements.txt si siguen sin usarse",
+      "description": "Ningún archivo importa anthropic ni elevenlabs. Confirmar con Ramiro antes de eliminarlas.",
+      "acceptance": [
+        "Ramiro confirma que no se usan",
+        "requirements.txt ya no las lista"
+      ],
+      "sdd": false,
+      "riesgo": "bajo",
+      "status": "pending"
+    }
+  ]
+}
