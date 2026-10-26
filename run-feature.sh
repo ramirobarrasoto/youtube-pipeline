@@ -11,7 +11,7 @@
 #   ./run-feature.sh implementar <feature>  in_progress -> agente implementer
 #   ./run-feature.sh revisar <feature>      in_progress -> agente reviewer; APPROVED => done
 #
-# Variables: AGY (comando; por defecto "agy"), DRY_RUN=1 (solo muestra el comando que se lanzaría)
+# Variables: AGY (comando; por defecto "agy"), AGY_MODE, AGY_EXTRA (flags extra de agy), DRY_RUN=1 (solo muestra el comando)
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -66,11 +66,12 @@ run_agente() {   # run_agente <rol> <feature>
   # se quede esperando una aprobación de edición que nadie puede dar. Cambiable con AGY_MODE=.
   local modo="${AGY_MODE:-accept-edits}"
   if [ "${DRY_RUN:-0}" = "1" ]; then
-    echo "[dry-run] $AGY -p \"$prompt\" --mode $modo"
+    echo "[dry-run] $AGY -p \"$prompt\" --mode $modo ${AGY_EXTRA:-}"
     return 0
   fi
   command -v "$AGY" >/dev/null 2>&1 || die "no encuentro '$AGY' en el PATH (instala Antigravity CLI o define AGY=...)"
-  "$AGY" -p "$prompt" --mode "$modo"
+  # shellcheck disable=SC2086
+  "$AGY" -p "$prompt" --mode "$modo" ${AGY_EXTRA:-}
 }
 
 cmd_status() {
