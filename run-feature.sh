@@ -2,7 +2,7 @@
 # run-feature.sh — Orquesta el flujo SDD, UNA fase a la vez, con Antigravity CLI (agy -p).
 #
 # Los cambios de estado y la puerta de aprobación humana los hace ESTE SCRIPT, no el modelo.
-# NOTA: escrito sin poder ejecutar `agy` (no estaba disponible al crearlo). Probar primero con DRY_RUN=1.
+# NOTA: ajustado a agy 1.4.7 (-p, --mode). Probar primero con DRY_RUN=1.
 #
 # Uso:
 #   ./run-feature.sh status
@@ -62,12 +62,15 @@ existe() { feat_get "$1" status >/dev/null 2>&1 || die "la feature '$1' no exist
 run_agente() {   # run_agente <rol> <feature>
   local rol="$1" feat="$2"
   local prompt="Actúa como el agente '$rol' definido en .agents/agents/$rol/agent.md. Lee ese archivo y AGENTS.md y sigue su protocolo para la feature '$feat'. Responde con UNA sola línea, como indica el archivo."
+  # agy 1.4.7 no tiene --cwd (el script ya hace cd a la raíz). --mode accept-edits evita que -p
+  # se quede esperando una aprobación de edición que nadie puede dar. Cambiable con AGY_MODE=.
+  local modo="${AGY_MODE:-accept-edits}"
   if [ "${DRY_RUN:-0}" = "1" ]; then
-    echo "[dry-run] $AGY -p \"$prompt\" --cwd \"$PWD\""
+    echo "[dry-run] $AGY -p \"$prompt\" --mode $modo"
     return 0
   fi
   command -v "$AGY" >/dev/null 2>&1 || die "no encuentro '$AGY' en el PATH (instala Antigravity CLI o define AGY=...)"
-  "$AGY" -p "$prompt" --cwd "$PWD"
+  "$AGY" -p "$prompt" --mode "$modo"
 }
 
 cmd_status() {
